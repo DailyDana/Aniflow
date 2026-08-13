@@ -1,0 +1,36 @@
+DanaUpscale — Anime4K / FSRCNNX Video Upscaler (Tasinabilir)
+Yazar: Daily Dana — ayrintili belge: README.md
+=====================================================
+
+CALISTIRMA: "Upscale GUI.bat" dosyasina cift tiklayin.
+Depodan indirdiyseniz once setup.ps1 calistirin (ffmpeg + RIFE dosyalarini indirir).
+
+Ozellikler:
+- Toplu kuyruk: birden cok dosyayi veya klasoru listeye surukleyin,
+  sirayla islenir. Ciktilar kaynak dosyanin yanina yazilir
+  (ad_2x_upscale.mkv gibi).
+- 11 shader modu: Anime4K A/B/C, cift modlar (A+A, B+B, C+A),
+  keskinlestirmeli varyantlar, FSRCNNX HQ/hizli.
+- Cikti cozunurlugu: 2x/3x/4x veya 1080p/1440p/4K hedef.
+- Onizleme: videonun ortasindan 10 sn'lik ornegi isleyip acar.
+- Karsilastir: sol klasik olcekleme, sag shader — yan yana video.
+- Tum ses kanallari, altyazilar ve ek dosyalar (fontlar) korunur.
+- Istege bagli deband + denoise filtreleri.
+- Istege bagli RIFE 2x kare interpolasyonu (24->48 fps; Python +
+  "pip install vapoursynth" gerektirir, eksikse kutu kapali kalir).
+- Ses: kayipsiz kopyala veya AAC/Opus'a cevir.
+- Bitince: ses cal / uyut / kapat. Kodlama surerken uyku engellenir.
+
+Klasor icerigi:
+  Upscale GUI.bat    -> baslatici
+  UpscaleGUI.ps1     -> uygulama (PowerShell, Windows'ta yerlesik)
+  bin\ffmpeg.exe     -> statik ffmpeg (libplacebo destekli, DLL gerektirmez)
+  shaders\*.glsl     -> Anime4K + FSRCNNX shader'lari ve birlesik zincirler
+
+Notlar:
+- Klasoru USB'ye veya baska bir Windows makineye oldugu gibi
+  kopyalamaniz yeterli; hicbir kuruluma bagimli degildir.
+- x264/x265 kodlayicilar her makinede calisir. QSV/NVENC/AMF
+  secenekleri o makinenin GPU'suna baglidir; uyumsuzsa x264'e gecin.
+- GPU'da Vulkan surucusu olmali (2015 sonrasi hemen her sistemde var).
+- Klasor salt okunur bir ortamdaysa zincir dosyalari %TEMP%'e yazilir.

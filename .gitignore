@@ -1,0 +1,15 @@
+# Buyuk ikili dosyalar setup.ps1 ile indirilir / kopyalanir
+bin/
+vapoursynth/*.dll
+vapoursynth/models/
+
+# Calisma zamaninda uretilen zincir dosyalari
+shaders/_chain_*.glsl
+
+# BestSource / L-SMASH indeks artiklari
+*.lwi
+*.bsindex
+
+# Windows
+Thumbs.db
+desktop.ini
