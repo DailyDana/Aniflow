@@ -1,4 +1,4 @@
-# DanaUpscale - RIFE 2x offline interpolation script (Daily Dana)
+# Aniflow - RIFE 2x offline interpolation script (Daily Dana)
 # Cagiran: UpscaleGUI.ps1 -> vspipe -c y4m -a key=value ... rife_encode.vpy - | ffmpeg ...
 # Tum parametreler -a ile gelir; bu dosya asla yeniden yazilmaz.
 import os
@@ -64,7 +64,7 @@ def _ascii_safe_model_dir(models_dir, name):
     except Exception:
         pass
     import shutil, tempfile
-    dst = os.path.join(tempfile.gettempdir(), 'DanaUpscale', 'models', name)
+    dst = os.path.join(tempfile.gettempdir(), 'Aniflow', 'models', name)
     if not os.path.isdir(dst):
         shutil.copytree(os.path.join(models_dir, name), dst)
     return dst

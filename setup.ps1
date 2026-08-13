@@ -1,4 +1,4 @@
-# DanaUpscale bagimlilik kurulumu / dependency bootstrap — Daily Dana
+# Aniflow bagimlilik kurulumu / dependency bootstrap — Daily Dana
 # Depoda tutulmayan buyuk ikili dosyalari indirir:
 #   bin\ffmpeg.exe        BtbN'in resmi statik yapimi (libplacebo destekli)
 #   vapoursynth\*         RIFE eklentisi + v4.6 modeli + BestSource (istege bagli RIFE icin)
@@ -10,11 +10,11 @@ $ErrorActionPreference = 'Stop'
 $Root = $PSScriptRoot
 $Bin  = Join-Path $Root 'bin'
 $Vap  = Join-Path $Root 'vapoursynth'
-$Tmp  = Join-Path $env:TEMP 'DanaUpscale-setup'
+$Tmp  = Join-Path $env:TEMP 'Aniflow-setup'
 New-Item -ItemType Directory -Force -Path $Bin, $Vap, $Tmp | Out-Null
 
 $FfmpegUrl = 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip'
-$DepsUrl   = 'https://github.com/DailyDana/DanaUpscale/releases/download/deps-v1/vapoursynth-deps.zip'
+$DepsUrl   = 'https://github.com/DailyDana/Aniflow/releases/download/deps-v1/vapoursynth-deps.zip'
 
 function Get-Download([string]$url, [string]$out) {
     Write-Host "Indiriliyor / downloading: $url"
@@ -68,7 +68,7 @@ $vspipe = Get-Command vspipe.exe -ErrorAction SilentlyContinue
 
 # ---- Ozet ----
 Write-Host ''
-Write-Host '=== DanaUpscale kurulum ozeti / setup summary ==='
+Write-Host '=== Aniflow kurulum ozeti / setup summary ==='
 Write-Host ('  ffmpeg (libplacebo) : {0}' -f $(if (Test-Path $ff) { 'OK' } else { 'EKSIK' }))
 Write-Host ('  bestsource.dll      : {0}' -f $(if (Test-Path $bsDll) { 'OK' } else { 'EKSIK (RIFE calismaz)' }))
 Write-Host ('  RIFE eklenti+model  : {0}' -f $(if ((Test-Path $rifeDll) -and (Test-Path $rifeMod)) { 'OK' } else { 'EKSIK (RIFE calismaz)' }))

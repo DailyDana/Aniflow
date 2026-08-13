@@ -1,4 +1,4 @@
-# DanaUpscale
+# Aniflow
 
 **Anime4K / FSRCNNX video upscaler GUI with optional RIFE 2x frame interpolation — by Daily Dana**
 
@@ -8,7 +8,7 @@ mpv-style GLSL shader chains (Anime4K, FSRCNNX) to video files using FFmpeg's
 an optional [RIFE](https://github.com/hzwer/Practical-RIFE) AI frame-interpolation
 stage that doubles the frame rate (24 → 48 fps).
 
-<!-- ![DanaUpscale screenshot](docs/screenshot.png) -->
+<!-- ![Aniflow screenshot](docs/screenshot.png) -->
 
 ## Features
 
@@ -35,8 +35,8 @@ stage that doubles the frame rate (24 → 48 fps).
 ## Install
 
 ```powershell
-git clone https://github.com/DailyDana/DanaUpscale.git
-cd DanaUpscale
+git clone https://github.com/DailyDana/Aniflow.git
+cd Aniflow
 .\setup.ps1        # downloads ffmpeg (BtbN official build) + RIFE dependencies
 ```
 

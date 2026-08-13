@@ -1,6 +1,6 @@
 # Third-party components / Ucuncu taraf bilesenler
 
-DanaUpscale's own code (UpscaleGUI.ps1, rife_encode.vpy, setup.ps1) is MIT-licensed
+Aniflow's own code (UpscaleGUI.ps1, rife_encode.vpy, setup.ps1) is MIT-licensed
 (see LICENSE). It builds on the following third-party work:
 
 | Component | Author | License | Source | How obtained |

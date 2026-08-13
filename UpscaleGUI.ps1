@@ -1,4 +1,4 @@
-# Anime4K / FSRCNNX Video Upscaler GUI — TASINABILIR SURUM
+# Aniflow — Anime4K / FSRCNNX Video Upscaler GUI (TASINABILIR SURUM)
 # Yazar: Daily Dana
 # Tum bagimliliklar bu klasorde: bin\ffmpeg.exe + shaders\*.glsl
 # Windows PowerShell 5.1+ (Windows'ta yerlesik) ile calisir, kurulum istemez.
@@ -177,7 +177,7 @@ if ($SelfTest) {
 
 # ================= GUI =================
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Anime4K / FSRCNNX Video Upscaler (Portable) - Daily Dana'
+$form.Text = 'Aniflow - Anime4K / FSRCNNX Video Upscaler - Daily Dana'
 $form.Size = New-Object System.Drawing.Size(690, 720)
 $form.MinimumSize = $form.Size
 $form.StartPosition = 'CenterScreen'
