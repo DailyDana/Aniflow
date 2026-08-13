@@ -49,10 +49,30 @@ if matrix in (0, 2):
     matrix = 5 if clip.height <= 576 else 1
     clip = core.std.SetFrameProps(clip, _Matrix=matrix)
 
+# ncnn model dosyalarini ANSI fopen ile acar: ASCII disi yol (or. "Masaüstü")
+# yuklemeyi bozar. Eklenti model TURUNU klasor ADINDAN tanidigi icin ad aynen
+# kalmali: yalniz ust klasor 8.3 kisa yola cevrilir, olmazsa TEMP'e kopyalanir.
+def _ascii_safe_model_dir(models_dir, name):
+    if not any(ord(c) > 127 for c in models_dir):
+        return os.path.join(models_dir, name)
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(260)
+        if ctypes.windll.kernel32.GetShortPathNameW(models_dir, buf, 260):
+            if not any(ord(c) > 127 for c in buf.value):
+                return os.path.join(buf.value, name)
+    except Exception:
+        pass
+    import shutil, tempfile
+    dst = os.path.join(tempfile.gettempdir(), 'DanaUpscale', 'models', name)
+    if not os.path.isdir(dst):
+        shutil.copytree(os.path.join(models_dir, name), dst)
+    return dst
+
 # RIFE RGBS float bekler; kaynak cozunurlukte calisir (720p kucultme YOK - offline is)
 rgb = core.resize.Bicubic(clip, format=vs.RGBS)
 inter = core.rife.RIFE(rgb, factor_num=2, factor_den=1,
-                       model_path=os.path.join(model_dir, model_name),
+                       model_path=_ascii_safe_model_dir(model_dir, model_name),
                        gpu_thread=gpu_thread, sc=True)
 # 10-bit kaynaklar 10-bit kalir (y4m P10 destekler); digerleri 8-bit
 outfmt = vs.YUV420P10 if bits > 8 else vs.YUV420P8
