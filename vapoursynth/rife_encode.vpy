@@ -1,5 +1,5 @@
 # Aniflow - RIFE 2x offline interpolation script (Daily Dana)
-# Cagiran: UpscaleGUI.ps1 -> vspipe -c y4m -a key=value ... rife_encode.vpy - | ffmpeg ...
+# Cagiran: Aniflow.ps1 -> vspipe -c y4m -a key=value ... rife_encode.vpy - | ffmpeg ...
 # Tum parametreler -a ile gelir; bu dosya asla yeniden yazilmaz.
 import os
 import vapoursynth as vs

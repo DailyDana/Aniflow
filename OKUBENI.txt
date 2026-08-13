@@ -2,7 +2,7 @@ Aniflow — Anime4K / FSRCNNX Video Upscaler (Tasinabilir)
 Yazar: Daily Dana — ayrintili belge: README.md
 =====================================================
 
-CALISTIRMA: "Upscale GUI.bat" dosyasina cift tiklayin.
+CALISTIRMA: "Aniflow.bat" dosyasina cift tiklayin.
 Depodan indirdiyseniz once setup.ps1 calistirin (ffmpeg + RIFE dosyalarini indirir).
 
 Ozellikler:
@@ -22,8 +22,8 @@ Ozellikler:
 - Bitince: ses cal / uyut / kapat. Kodlama surerken uyku engellenir.
 
 Klasor icerigi:
-  Upscale GUI.bat    -> baslatici
-  UpscaleGUI.ps1     -> uygulama (PowerShell, Windows'ta yerlesik)
+  Aniflow.bat    -> baslatici
+  Aniflow.ps1     -> uygulama (PowerShell, Windows'ta yerlesik)
   bin\ffmpeg.exe     -> statik ffmpeg (libplacebo destekli, DLL gerektirmez)
   shaders\*.glsl     -> Anime4K + FSRCNNX shader'lari ve birlesik zincirler
 

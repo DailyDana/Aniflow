@@ -40,7 +40,7 @@ cd Aniflow
 .\setup.ps1        # downloads ffmpeg (BtbN official build) + RIFE dependencies
 ```
 
-Then double-click **`Upscale GUI.bat`**.
+Then double-click **`Aniflow.bat`**.
 
 `setup.ps1` fetches what the repo does not ship: `bin\ffmpeg.exe` straight from the
 official [BtbN FFmpeg builds](https://github.com/BtbN/FFmpeg-Builds) and the
@@ -56,7 +56,7 @@ repo's `deps-v1` release.
   VapourSynth pipeline warms up — this is normal.
 - The RIFE checkbox is disabled (with the reason in the log) when `vspipe`,
   the RIFE plugin, or `bestsource.dll` is missing.
-- Quick health check: `powershell -File UpscaleGUI.ps1 -SelfTest`
+- Quick health check: `powershell -File Aniflow.ps1 -SelfTest`
 
 ## License
 
@@ -74,7 +74,7 @@ aracı; isteğe bağlı RIFE 2x kare interpolasyonu ile. Yazar: Daily Dana.**
 
 - **Kurulum:** depoyu klonlayın, `.\setup.ps1` çalıştırın (ffmpeg'i resmi BtbN
   yapımından, RIFE bağımlılıklarını bu deponun `deps-v1` release'inden indirir),
-  ardından **`Upscale GUI.bat`** ile başlatın.
+  ardından **`Aniflow.bat`** ile başlatın.
 - **RIFE için (isteğe bağlı):** Python 3.12+ kurup `pip install vapoursynth` yapın.
   Eksik parça varsa RIFE kutusu kapalı kalır, sebebi log penceresinde yazar.
 - **Kullanım:** dosyaları kuyruğa sürükleyin; shader modunu, kodlayıcıyı ve

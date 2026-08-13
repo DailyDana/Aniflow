@@ -80,4 +80,4 @@ if (-not $vspipe) {
     Write-Host '  2) pip install vapoursynth'
 }
 Write-Host ''
-Write-Host 'Hazir! "Upscale GUI.bat" ile baslatabilirsiniz. / Done - launch "Upscale GUI.bat".'
+Write-Host 'Hazir! "Aniflow.bat" ile baslatabilirsiniz. / Done - launch "Aniflow.bat".'
