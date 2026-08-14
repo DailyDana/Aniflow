@@ -16,6 +16,8 @@ Ozellikler:
 - Karsilastir: sol klasik olcekleme, sag shader — yan yana video.
 - Tum ses kanallari, altyazilar ve ek dosyalar (fontlar) korunur.
 - Istege bagli deband + denoise filtreleri.
+- AI Upscale modu (Real-ESRGAN animevideov3): dusuk kaliteli kaynaklarda
+  shader'lardan cok daha iyi sonuc; yavas, offline. Shader modu listesinden secilir.
 - Istege bagli RIFE 2x kare interpolasyonu (24->48 fps; Python +
   "pip install vapoursynth" gerektirir, eksikse kutu kapali kalir).
 - Ses: kayipsiz kopyala veya AAC/Opus'a cevir.

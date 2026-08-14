@@ -63,7 +63,21 @@ if ($Force -or -not ((Test-Path $rifeDll) -and (Test-Path $rifeMod) -and (Test-P
     }
 }
 
-# ---- 3) vspipe (kullanicinin kurmasi gereken tek parca) ----
+# ---- 3) Real-ESRGAN (AI upscale modu icin; resmi release'ten) ----
+$AiDir = Join-Path $Root 'realesrgan'
+$AiExe = Join-Path $AiDir 'realesrgan-ncnn-vulkan.exe'
+if ($Force -or -not (Test-Path $AiExe)) {
+    $zip = Join-Path $Tmp 'realesrgan.zip'
+    try {
+        Get-Download 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip' $zip
+        Expand-Archive $zip $AiDir -Force
+    } catch {
+        Write-Warning "Real-ESRGAN indirilemedi: $($_.Exception.Message)"
+        Write-Warning 'AI upscale modu olmadan da uygulama calisir.'
+    }
+}
+
+# ---- 4) vspipe (kullanicinin kurmasi gereken tek parca) ----
 $vspipe = Get-Command vspipe.exe -ErrorAction SilentlyContinue
 
 # ---- Ozet ----
@@ -72,6 +86,7 @@ Write-Host '=== Aniflow kurulum ozeti / setup summary ==='
 Write-Host ('  ffmpeg (libplacebo) : {0}' -f $(if (Test-Path $ff) { 'OK' } else { 'EKSIK' }))
 Write-Host ('  bestsource.dll      : {0}' -f $(if (Test-Path $bsDll) { 'OK' } else { 'EKSIK (RIFE calismaz)' }))
 Write-Host ('  RIFE eklenti+model  : {0}' -f $(if ((Test-Path $rifeDll) -and (Test-Path $rifeMod)) { 'OK' } else { 'EKSIK (RIFE calismaz)' }))
+Write-Host ('  Real-ESRGAN (AI)    : {0}' -f $(if (Test-Path $AiExe) { 'OK' } else { 'EKSIK (AI modu calismaz)' }))
 Write-Host ('  vspipe (VapourSynth): {0}' -f $(if ($vspipe) { 'OK - ' + $vspipe.Source } else { 'EKSIK' }))
 if (-not $vspipe) {
     Write-Host ''

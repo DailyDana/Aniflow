@@ -9,6 +9,7 @@ Aniflow's own code (Aniflow.ps1, rife_encode.vpy, setup.ps1) is MIT-licensed
 | FSRCNNX shaders (`shaders/FSRCNNX_*.glsl`) | igv | LGPL-3.0 (per file header) | https://github.com/igv/FSRCNN-TensorFlow | committed in this repo |
 | KrigBilateral (`shaders/KrigBilateral.glsl`) | Shiandow | LGPL-3.0 (per file header) | https://gist.github.com/igv | committed in this repo |
 | adaptive-sharpen (`shaders/adaptive-sharpen.glsl`) | bacondither | BSD-2-Clause (per file header) | https://gist.github.com/igv | committed in this repo |
+| Real-ESRGAN ncnn-vulkan + realesr-animevideov3 models (`realesrgan/`) | xinntao / Tencent ARC Lab | MIT (wrapper), BSD-3 (Real-ESRGAN) | https://github.com/xinntao/Real-ESRGAN | downloaded by `setup.ps1` from the official release |
 | FFmpeg (`bin/ffmpeg.exe`) | FFmpeg team / BtbN builds | GPL-3.0 | https://github.com/BtbN/FFmpeg-Builds | downloaded by the user via `setup.ps1` from the official BtbN releases (not redistributed here; sources available at the same page) |
 | VapourSynth | Fredrik Mellbin | LGPL-2.1 | https://github.com/vapoursynth/vapoursynth | installed by the user via `pip install vapoursynth` (optional, RIFE only) |
 | BestSource (`vapoursynth/bestsource.dll`) | vapoursynth project | MIT (statically links FFmpeg libraries; their sources at the upstream release page) | https://github.com/vapoursynth/bestsource | re-hosted in this repo's `deps-v1` release, fetched by `setup.ps1` |

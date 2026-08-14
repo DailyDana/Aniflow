@@ -16,6 +16,7 @@ stage that doubles the frame rate (24 → 48 fps).
   source (`name_2x_upscale.mkv`, `name_2x_rife_upscale.mkv`).
 - **11 shader presets** — Anime4K modes A/B/C, double modes (A+A, B+B, C+A),
   Adaptive Sharpen variants, FSRCNNX x2 16/8 + KrigBilateral.
+- **AI Upscale mode (Real-ESRGAN)** - optional offline neural upscaling with `realesr-animevideov3` (2x/3x/4x); frames are extracted, upscaled on any Vulkan GPU and re-encoded with audio/subtitles intact. Slower than shaders, far better on low-quality sources.
 - **RIFE 2x frame interpolation** (optional) — runs at source resolution via
   VapourSynth before the shader upscale; scene-change aware, audio/subtitles preserved.
 - **Output scaling** — 2x/3x/4x multipliers or 1080p/1440p/2160p targets.

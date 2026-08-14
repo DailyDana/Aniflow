@@ -2,6 +2,7 @@
 bin/
 vapoursynth/*.dll
 vapoursynth/models/
+realesrgan/
 
 # Calisma zamaninda uretilen zincir dosyalari
 shaders/_chain_*.glsl
