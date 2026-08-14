@@ -8,7 +8,7 @@ mpv-style GLSL shader chains (Anime4K, FSRCNNX) to video files using FFmpeg's
 an optional [RIFE](https://github.com/hzwer/Practical-RIFE) AI frame-interpolation
 stage that doubles the frame rate (24 → 48 fps).
 
-<!-- ![Aniflow screenshot](docs/screenshot.png) -->
+![Aniflow](docs/screenshot.png)
 
 ## Features
 
@@ -22,6 +22,8 @@ stage that doubles the frame rate (24 → 48 fps).
 - **Preview** — process 10 seconds from the middle of the video and play it.
 - **Compare** — classic Lanczos vs. shader chain, side by side in one video.
 - **Encoders** — x264/x265 (CPU), H.264/HEVC/AV1 QSV, NVENC, AMF.
+- **Advanced ffmpeg parameters** box - pass any extra encoder options (e.g. `-preset veryslow`).
+- Data streams (Dolby Vision RPU) carried over alongside audio/subtitles/attachments.
 - Optional deband + denoise filters, audio copy or AAC/Opus re-encode,
   post-queue actions (sound / sleep / shutdown), sleep inhibited while encoding.
 - Dark themed UI (Turkish).

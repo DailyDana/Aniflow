@@ -125,6 +125,13 @@ function Quote-Args($list) {
     $list | ForEach-Object { if ($_ -match '\s') { '"{0}"' -f $_ } else { $_ } }
 }
 
+# Gelismis parametre kutusunu ffmpeg argumanlarina cevirir; cift tirnakli
+# obekler tek arguman sayilir (or: -metadata title="Bolum 1" -> title=Bolum 1)
+function Split-ExtraArgs([string]$s) {
+    if ([string]::IsNullOrWhiteSpace($s)) { return @() }
+    [regex]::Matches($s, '(?:[^\s"]+|"[^"]*")+') | ForEach-Object { $_.Value -replace '"','' }
+}
+
 # --- RIFE 2x kare interpolasyonu (istege bagli) ---
 # Video once vspipe+VapourSynth'te RIFE ile 2x fps'e cikarilir, y4m olarak
 # ffmpeg'e borulanir; shader zinciri ve kodlama ffmpeg tarafinda ayni kalir.
@@ -177,8 +184,8 @@ if ($SelfTest) {
 
 # ================= GUI =================
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Aniflow - Anime4K / FSRCNNX Video Upscaler - Daily Dana'
-$form.Size = New-Object System.Drawing.Size(690, 720)
+$form.Text = 'Aniflow v2 - Anime4K / FSRCNNX Video Upscaler - Daily Dana'
+$form.Size = New-Object System.Drawing.Size(690, 756)
 $form.MinimumSize = $form.Size
 $form.StartPosition = 'CenterScreen'
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9.5)
@@ -310,16 +317,24 @@ $btnCmp.Location = New-Object System.Drawing.Point(445, 312)
 $btnCmp.Size = New-Object System.Drawing.Size(170, 32)
 $form.Controls.Add($btnCmp)
 
+# --- Gelismis parametreler ---
+Add-Label 'Gelismis ffmpeg parametreleri (istege bagli):' 15 354 | Out-Null
+$txtExtra = New-Object System.Windows.Forms.TextBox
+$txtExtra.Location = New-Object System.Drawing.Point(330, 351)
+$txtExtra.Size = New-Object System.Drawing.Size(330, 24)
+$txtExtra.Anchor = 'Top,Left,Right'
+$form.Controls.Add($txtExtra)
+
 $bar = New-Object System.Windows.Forms.ProgressBar
-$bar.Location = New-Object System.Drawing.Point(15, 356)
+$bar.Location = New-Object System.Drawing.Point(15, 392)
 $bar.Size = New-Object System.Drawing.Size(645, 22)
 $bar.Anchor = 'Top,Left,Right'
 $form.Controls.Add($bar)
 
-$lblStatus = Add-Label 'Hazir.' 15 384
+$lblStatus = Add-Label 'Hazir.' 15 420
 
 $txtLog = New-Object System.Windows.Forms.TextBox
-$txtLog.Location = New-Object System.Drawing.Point(15, 410)
+$txtLog.Location = New-Object System.Drawing.Point(15, 446)
 $txtLog.Size = New-Object System.Drawing.Size(645, 250)
 $txtLog.Anchor = 'Top,Bottom,Left,Right'
 $txtLog.Multiline = $true; $txtLog.ReadOnly = $true; $txtLog.ScrollBars = 'Vertical'
@@ -409,13 +424,15 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
         $ffArgs += @('-vf', $vf)
         # tum ses/altyazi/ek dosyalar korunur; video yalnizca ilk akis (kapak resimleri disarida)
         if ($useRife) {
-            $ffArgs += @('-map','0:v:0','-map','1:a?','-map','1:s?','-map','1:t?','-map_metadata','1','-map_chapters','1')
+            $ffArgs += @('-map','0:v:0','-map','1:a?','-map','1:s?','-map','1:d?','-map','1:t?','-map_metadata','1','-map_chapters','1')
         } else {
-            $ffArgs += @('-map','0:v:0','-map','0:a?','-map','0:s?','-map','0:t?')
+            $ffArgs += @('-map','0:v:0','-map','0:a?','-map','0:s?','-map','0:d?','-map','0:t?')
         }
         $ffArgs += & $Encoders[$cmbEnc.SelectedItem] ([int]$numQ.Value)
         $ffArgs += $AudioOpts[$cmbAudio.SelectedItem]
-        $ffArgs += @('-c:s','copy','-c:t','copy')
+        # -c:d copy: data akislari (or. Dolby Vision RPU) da tasinir
+        $ffArgs += @('-c:s','copy','-c:d','copy','-c:t','copy')
+        $ffArgs += Split-ExtraArgs $txtExtra.Text
     }
     $ffArgs += @('-progress', $state.ProgFile, $out)
 
