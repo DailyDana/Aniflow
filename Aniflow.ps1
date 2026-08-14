@@ -182,11 +182,13 @@ $EncoderCmds = @(
     { param($q) @('-c:v','hevc_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") }
 )
 
-# Ses secenekleri: dizin sirasi AudioItems ile esler
+# Ses secenekleri: dizin sirasi AudioItems ile esler.
+# DIKKAT: bastaki virgul sart - @() blogu ic dizileri duzlestirir, ",@(...)"
+# her satiri tek oge olarak korur (PS 5.1 tuzagi).
 $AudioCmds = @(
-    @('-c:a','copy')
-    @('-c:a','aac','-b:a','192k')
-    @('-c:a','libopus','-b:a','160k')
+    ,@('-c:a','copy')
+    ,@('-c:a','aac','-b:a','192k')
+    ,@('-c:a','libopus','-b:a','160k')
 )
 
 # Zincir dosyasini birlestir. Shaders klasoru yazilabilirse oraya, degilse
