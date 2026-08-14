@@ -20,15 +20,47 @@ Add-Type -Namespace Win32 -Name Power -MemberDefinition `
     '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
 $ES_CONTINUOUS = [uint32]'0x80000000'; $ES_SYSTEM_REQUIRED = [uint32]'0x00000001'
 
-# ================= Dil / Language =================
-# Varsayilan Ingilizce; secim %APPDATA%\Aniflow.lang dosyasinda saklanir.
-$LangFile = Join-Path $env:APPDATA 'Aniflow.lang'
-$script:LangCode = 'en'
-if (Test-Path $LangFile) {
-    $lc = (Get-Content $LangFile -TotalCount 1 -ErrorAction SilentlyContinue)
-    if ($lc) { $lc = $lc.Trim() }
-    if ($lc -in @('en','tr')) { $script:LangCode = $lc }
+# ================= Ayarlar / Settings =================
+# Tum kalici tercihler %APPDATA%\Aniflow.settings.json dosyasinda tutulur.
+$CfgFile = Join-Path $env:APPDATA 'Aniflow.settings.json'
+$script:Cfg = @{
+    Lang = 'en'            # en | tr
+    Container = 'mkv'      # mkv | mp4
+    Suffix = '_upscale'    # cikti dosya adi eki
+    OutDir = ''            # bos = kaynak dosyanin yanina
+    CpuPreset = 'medium'   # libx264/libx265 preset
+    AiModel = 'realesr-animevideov3'
+    AiTile = 0             # 0 = otomatik; dusuk deger = az VRAM
+    AiGpu = 0
+    TempRoot = ''          # bos = sistem TEMP; AI kareleri icin buyuk disk secilebilir
+    KeepTemp = $false
+    RifeModel = 'rife-v4.6_ensembleFalse'
+    RifeGpuThread = 2
 }
+function Load-Config {
+    if (Test-Path $CfgFile) {
+        try {
+            $j = Get-Content $CfgFile -Raw | ConvertFrom-Json
+            foreach ($k in @($script:Cfg.Keys)) {
+                if ($null -ne $j.$k) { $script:Cfg[$k] = $j.$k }
+            }
+        } catch {}
+    } else {
+        # eski tek satirlik dil dosyasindan gecis
+        $old = Join-Path $env:APPDATA 'Aniflow.lang'
+        if (Test-Path $old) {
+            $lc = (Get-Content $old -TotalCount 1 -ErrorAction SilentlyContinue)
+            if ($lc -and $lc.Trim() -in @('en','tr')) { $script:Cfg.Lang = $lc.Trim() }
+        }
+    }
+    if ($script:Cfg.Lang -notin @('en','tr')) { $script:Cfg.Lang = 'en' }
+    if ($script:Cfg.Container -notin @('mkv','mp4')) { $script:Cfg.Container = 'mkv' }
+}
+function Save-Config {
+    try { $script:Cfg | ConvertTo-Json | Set-Content -Path $CfgFile -Encoding UTF8 } catch {}
+}
+Load-Config
+$script:LangCode = $script:Cfg.Lang
 
 $Strings = @{
 en = @{
@@ -88,6 +120,20 @@ en = @{
     PrevFirst='Add a file to the queue first.'
     NoRes='Could not read input resolution; pick a multiplier (2x/3x/4x).'
     Error='Error'
+    Settings='Settings...'
+    SetTitle='Aniflow Settings'
+    SetGeneral='General'; SetLang='Language:'
+    SetOut='Output folder:'; SetOutSrc='Next to the source file'; SetOutCustom='Custom folder:'
+    SetSuffix='Filename suffix:'; SetContainer='Container:'
+    SetEncoding='Encoding'; SetPreset='x264/x265 preset:'
+    SetAiHead='AI Upscale'; SetAiModel='AI model:'; SetAiTile='Tile size (lower = less VRAM):'
+    SetAiGpu='GPU index:'; SetTempDir='Temp folder for AI frames (empty = system temp):'
+    SetKeepTemp='Keep temp frames after job (debugging)'
+    SetRifeHead='RIFE'; SetRifeModel='RIFE model:'; SetRifeThreads='GPU threads:'
+    OKBtn='OK'; CancelBtn='Cancel'; TileAuto='Auto'
+    Ai4xOnly='This AI model is 4x only - pick 4x as output resolution.'
+    Mp4Note='MP4 container: attachments are dropped and subtitles converted to mov_text.'
+    KeepTempLog='Temp frames kept: {0}'
 }
 tr = @{
     Queue='Kuyruk (dosyalari buraya surukleyin, ciktilar kaynak klasore yazilir):'
@@ -146,6 +192,20 @@ tr = @{
     PrevFirst='Once kuyruga dosya ekleyin.'
     NoRes='Girdi cozunurlugu okunamadi; katsayi (2x/3x/4x) secin.'
     Error='Hata'
+    Settings='Ayarlar...'
+    SetTitle='Aniflow Ayarlari'
+    SetGeneral='Genel'; SetLang='Dil:'
+    SetOut='Cikti klasoru:'; SetOutSrc='Kaynak dosyanin yanina'; SetOutCustom='Ozel klasor:'
+    SetSuffix='Dosya adi eki:'; SetContainer='Kapsayici:'
+    SetEncoding='Kodlama'; SetPreset='x264/x265 preset:'
+    SetAiHead='AI Upscale'; SetAiModel='AI modeli:'; SetAiTile='Tile boyutu (dusuk = az VRAM):'
+    SetAiGpu='GPU sirasi:'; SetTempDir='AI kareleri icin gecici klasor (bos = sistem TEMP):'
+    SetKeepTemp='Is bitince gecici kareleri sakla (hata ayiklama)'
+    SetRifeHead='RIFE'; SetRifeModel='RIFE modeli:'; SetRifeThreads='GPU is parcacigi:'
+    OKBtn='Tamam'; CancelBtn='Iptal'; TileAuto='Otomatik'
+    Ai4xOnly='Bu AI modeli yalniz 4x calisir - cikti cozunurlugu olarak 4x secin.'
+    Mp4Note='MP4 kapsayici: ek dosyalar atlanir, altyazilar mov_text formatina cevrilir.'
+    KeepTempLog='Gecici kareler saklandi: {0}'
 }
 }
 function L([string]$k) { $Strings[$script:LangCode][$k] }
@@ -171,8 +231,8 @@ $Modes = [ordered]@{
 
 # --- Kodlayicilar: dizin sirasi EncoderItems dizisiyle esler (dil bagimsiz) ---
 $EncoderCmds = @(
-    { param($q) @('-c:v','libx264','-crf',"$q",'-preset','medium') }
-    { param($q) @('-c:v','libx265','-crf',"$q",'-preset','medium') }
+    { param($q) @('-c:v','libx264','-crf',"$q",'-preset',$script:Cfg.CpuPreset) }
+    { param($q) @('-c:v','libx265','-crf',"$q",'-preset',$script:Cfg.CpuPreset) }
     { param($q) @('-c:v','h264_qsv','-global_quality',"$q") }
     { param($q) @('-c:v','hevc_qsv','-global_quality',"$q") }
     { param($q) @('-c:v','av1_qsv','-global_quality',"$q") }
@@ -370,14 +430,12 @@ $btnClr.Location = New-Object System.Drawing.Point(575, 106)
 $btnClr.Size = New-Object System.Drawing.Size(85, 28); $btnClr.Anchor = 'Top,Right'
 $form.Controls.Add($btnClr)
 
-# Dil secici / language picker
-$cmbLang = New-Object System.Windows.Forms.ComboBox
-$cmbLang.Location = New-Object System.Drawing.Point(575, 140)
-$cmbLang.Size = New-Object System.Drawing.Size(85, 24)
-$cmbLang.DropDownStyle = 'DropDownList'; $cmbLang.Anchor = 'Top,Right'
-@('English','Turkce') | ForEach-Object { [void]$cmbLang.Items.Add($_) }
-$cmbLang.SelectedIndex = $(if ($script:LangCode -eq 'tr') { 1 } else { 0 })
-$form.Controls.Add($cmbLang)
+# Ayarlar dugmesi / settings button
+$btnSettings = New-Object System.Windows.Forms.Button
+$btnSettings.Location = New-Object System.Drawing.Point(575, 140)
+$btnSettings.Size = New-Object System.Drawing.Size(85, 28)
+$btnSettings.Anchor = 'Top,Right'
+$form.Controls.Add($btnSettings)
 
 # --- Mod / kodlayici / kalite ---
 $lblMode = Add-Label '' 15 162
@@ -498,6 +556,7 @@ function Set-UiLanguage {
     $lblExtra.Text = L 'Extra'
     $chkDeband.Text = L 'Deband'; $chkDenoise.Text = L 'Denoise'; $chkRife.Text = L 'Rife'
     $btnStart.Text = L 'Start'; $btnCancel.Text = L 'Cancel'; $btnPrev.Text = L 'Preview'; $btnCmp.Text = L 'Compare'
+    $btnSettings.Text = L 'Settings'
     foreach ($pair in @(@($cmbEnc,'EncoderItems'), @($cmbScale,'ScaleItems'), @($cmbAudio,'AudioItems'), @($cmbFinish,'FinishItems'))) {
         $cmb = $pair[0]
         $i = $cmb.SelectedIndex
@@ -508,11 +567,189 @@ function Set-UiLanguage {
     if (-not $btnCancel.Enabled) { $lblStatus.Text = L 'ReadyShort' }
 }
 Set-UiLanguage
-$cmbLang.Add_SelectedIndexChanged({
-    $script:LangCode = @('en','tr')[$cmbLang.SelectedIndex]
-    try { Set-Content -Path $LangFile -Value $script:LangCode -Encoding ASCII } catch {}
-    Set-UiLanguage
-})
+
+# ================= Ayarlar penceresi =================
+function Show-SettingsDialog {
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = L 'SetTitle'
+    $dlg.ClientSize = New-Object System.Drawing.Size(465, 640)
+    $dlg.FormBorderStyle = 'FixedDialog'; $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.Font = $form.Font
+
+    function Add-DlgLabel($text, $x, $y, [bool]$head) {
+        $l = New-Object System.Windows.Forms.Label
+        $l.Text = $text; $l.Location = New-Object System.Drawing.Point($x, $y); $l.AutoSize = $true
+        if ($head) { $l.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 10); $l.Tag = 'head' }
+        $dlg.Controls.Add($l); return $l
+    }
+
+    # --- Genel ---
+    $hd = Add-DlgLabel (L 'SetGeneral') 15 12 $true
+    $hd.ForeColor = $ClrAccent
+    Add-DlgLabel (L 'SetLang') 15 42 $false | Out-Null
+    $dLang = New-Object System.Windows.Forms.ComboBox
+    $dLang.Location = New-Object System.Drawing.Point(230, 39); $dLang.Size = New-Object System.Drawing.Size(120, 24)
+    $dLang.DropDownStyle = 'DropDownList'
+    @('English','Turkce') | ForEach-Object { [void]$dLang.Items.Add($_) }
+    $dLang.SelectedIndex = $(if ($script:Cfg.Lang -eq 'tr') { 1 } else { 0 })
+    $dlg.Controls.Add($dLang)
+
+    Add-DlgLabel (L 'SetOut') 15 74 $false | Out-Null
+    $rbSrc = New-Object System.Windows.Forms.RadioButton
+    $rbSrc.Text = L 'SetOutSrc'; $rbSrc.Location = New-Object System.Drawing.Point(25, 96); $rbSrc.AutoSize = $true
+    $dlg.Controls.Add($rbSrc)
+    $rbCustom = New-Object System.Windows.Forms.RadioButton
+    $rbCustom.Text = L 'SetOutCustom'; $rbCustom.Location = New-Object System.Drawing.Point(25, 120); $rbCustom.AutoSize = $true
+    $dlg.Controls.Add($rbCustom)
+    $dOut = New-Object System.Windows.Forms.TextBox
+    $dOut.Location = New-Object System.Drawing.Point(160, 118); $dOut.Size = New-Object System.Drawing.Size(240, 24)
+    $dOut.Text = $script:Cfg.OutDir
+    $dlg.Controls.Add($dOut)
+    $dOutBtn = New-Object System.Windows.Forms.Button
+    $dOutBtn.Text = '...'; $dOutBtn.Location = New-Object System.Drawing.Point(408, 116); $dOutBtn.Size = New-Object System.Drawing.Size(40, 26)
+    $dlg.Controls.Add($dOutBtn)
+    if ($script:Cfg.OutDir) { $rbCustom.Checked = $true } else { $rbSrc.Checked = $true }
+    $dOutBtn.Add_Click({
+        $fb = New-Object System.Windows.Forms.FolderBrowserDialog
+        if ($fb.ShowDialog() -eq 'OK') { $dOut.Text = $fb.SelectedPath; $rbCustom.Checked = $true }
+    })
+
+    Add-DlgLabel (L 'SetSuffix') 15 156 $false | Out-Null
+    $dSuffix = New-Object System.Windows.Forms.TextBox
+    $dSuffix.Location = New-Object System.Drawing.Point(230, 153); $dSuffix.Size = New-Object System.Drawing.Size(120, 24)
+    $dSuffix.Text = $script:Cfg.Suffix
+    $dlg.Controls.Add($dSuffix)
+
+    Add-DlgLabel (L 'SetContainer') 15 188 $false | Out-Null
+    $dCont = New-Object System.Windows.Forms.ComboBox
+    $dCont.Location = New-Object System.Drawing.Point(230, 185); $dCont.Size = New-Object System.Drawing.Size(120, 24)
+    $dCont.DropDownStyle = 'DropDownList'
+    @('mkv','mp4') | ForEach-Object { [void]$dCont.Items.Add($_) }
+    $dCont.SelectedIndex = $(if ($script:Cfg.Container -eq 'mp4') { 1 } else { 0 })
+    $dlg.Controls.Add($dCont)
+
+    # --- Kodlama ---
+    $hd = Add-DlgLabel (L 'SetEncoding') 15 224 $true
+    $hd.ForeColor = $ClrAccent
+    Add-DlgLabel (L 'SetPreset') 15 252 $false | Out-Null
+    $dPreset = New-Object System.Windows.Forms.ComboBox
+    $dPreset.Location = New-Object System.Drawing.Point(230, 249); $dPreset.Size = New-Object System.Drawing.Size(120, 24)
+    $dPreset.DropDownStyle = 'DropDownList'
+    $presets = @('ultrafast','veryfast','fast','medium','slow','veryslow')
+    $presets | ForEach-Object { [void]$dPreset.Items.Add($_) }
+    $pi = $presets.IndexOf([string]$script:Cfg.CpuPreset)
+    $dPreset.SelectedIndex = $(if ($pi -ge 0) { $pi } else { 3 })
+    $dlg.Controls.Add($dPreset)
+
+    # --- AI ---
+    $hd = Add-DlgLabel (L 'SetAiHead') 15 288 $true
+    $hd.ForeColor = $ClrAccent
+    Add-DlgLabel (L 'SetAiModel') 15 316 $false | Out-Null
+    $dAiModel = New-Object System.Windows.Forms.ComboBox
+    $dAiModel.Location = New-Object System.Drawing.Point(230, 313); $dAiModel.Size = New-Object System.Drawing.Size(220, 24)
+    $dAiModel.DropDownStyle = 'DropDownList'
+    $aiModels = @('realesr-animevideov3')
+    foreach ($m in @('realesrgan-x4plus-anime','realesrgan-x4plus','realesrnet-x4plus')) {
+        if (Test-Path (Join-Path $AiDir "models\$m.param")) { $aiModels += $m }
+    }
+    $aiModels | ForEach-Object { [void]$dAiModel.Items.Add($_) }
+    $mi = $aiModels.IndexOf([string]$script:Cfg.AiModel)
+    $dAiModel.SelectedIndex = $(if ($mi -ge 0) { $mi } else { 0 })
+    $dlg.Controls.Add($dAiModel)
+
+    Add-DlgLabel (L 'SetAiTile') 15 348 $false | Out-Null
+    $dTile = New-Object System.Windows.Forms.ComboBox
+    $dTile.Location = New-Object System.Drawing.Point(230, 345); $dTile.Size = New-Object System.Drawing.Size(120, 24)
+    $dTile.DropDownStyle = 'DropDownList'
+    $tiles = @(0, 128, 256, 512)
+    $tiles | ForEach-Object { [void]$dTile.Items.Add($(if ($_ -eq 0) { L 'TileAuto' } else { "$_" })) }
+    $ti = $tiles.IndexOf([int]$script:Cfg.AiTile)
+    $dTile.SelectedIndex = $(if ($ti -ge 0) { $ti } else { 0 })
+    $dlg.Controls.Add($dTile)
+
+    Add-DlgLabel (L 'SetAiGpu') 15 380 $false | Out-Null
+    $dGpu = New-Object System.Windows.Forms.NumericUpDown
+    $dGpu.Location = New-Object System.Drawing.Point(230, 377); $dGpu.Size = New-Object System.Drawing.Size(60, 24)
+    $dGpu.Minimum = 0; $dGpu.Maximum = 3; $dGpu.Value = [Math]::Min(3, [Math]::Max(0, [int]$script:Cfg.AiGpu))
+    $dlg.Controls.Add($dGpu)
+
+    Add-DlgLabel (L 'SetTempDir') 15 412 $false | Out-Null
+    $dTemp = New-Object System.Windows.Forms.TextBox
+    $dTemp.Location = New-Object System.Drawing.Point(15, 436); $dTemp.Size = New-Object System.Drawing.Size(385, 24)
+    $dTemp.Text = $script:Cfg.TempRoot
+    $dlg.Controls.Add($dTemp)
+    $dTempBtn = New-Object System.Windows.Forms.Button
+    $dTempBtn.Text = '...'; $dTempBtn.Location = New-Object System.Drawing.Point(408, 434); $dTempBtn.Size = New-Object System.Drawing.Size(40, 26)
+    $dlg.Controls.Add($dTempBtn)
+    $dTempBtn.Add_Click({
+        $fb = New-Object System.Windows.Forms.FolderBrowserDialog
+        if ($fb.ShowDialog() -eq 'OK') { $dTemp.Text = $fb.SelectedPath }
+    })
+
+    $dKeep = New-Object System.Windows.Forms.CheckBox
+    $dKeep.Text = L 'SetKeepTemp'; $dKeep.Location = New-Object System.Drawing.Point(15, 470); $dKeep.AutoSize = $true
+    $dKeep.Checked = [bool]$script:Cfg.KeepTemp
+    $dlg.Controls.Add($dKeep)
+
+    # --- RIFE ---
+    $hd = Add-DlgLabel (L 'SetRifeHead') 15 504 $true
+    $hd.ForeColor = $ClrAccent
+    Add-DlgLabel (L 'SetRifeModel') 15 532 $false | Out-Null
+    $dRifeModel = New-Object System.Windows.Forms.ComboBox
+    $dRifeModel.Location = New-Object System.Drawing.Point(230, 529); $dRifeModel.Size = New-Object System.Drawing.Size(220, 24)
+    $dRifeModel.DropDownStyle = 'DropDownList'
+    $rifeModels = @()
+    if ($script:Rife.Ok) {
+        $rifeModels = @(Get-ChildItem $script:Rife.ModelDir -Directory -ErrorAction SilentlyContinue | ForEach-Object Name)
+    }
+    if (-not $rifeModels) { $rifeModels = @([string]$script:Cfg.RifeModel) }
+    $rifeModels | ForEach-Object { [void]$dRifeModel.Items.Add($_) }
+    $ri = $rifeModels.IndexOf([string]$script:Cfg.RifeModel)
+    $dRifeModel.SelectedIndex = $(if ($ri -ge 0) { $ri } else { 0 })
+    $dlg.Controls.Add($dRifeModel)
+
+    Add-DlgLabel (L 'SetRifeThreads') 15 564 $false | Out-Null
+    $dRifeThr = New-Object System.Windows.Forms.NumericUpDown
+    $dRifeThr.Location = New-Object System.Drawing.Point(230, 561); $dRifeThr.Size = New-Object System.Drawing.Size(60, 24)
+    $dRifeThr.Minimum = 1; $dRifeThr.Maximum = 4; $dRifeThr.Value = [Math]::Min(4, [Math]::Max(1, [int]$script:Cfg.RifeGpuThread))
+    $dlg.Controls.Add($dRifeThr)
+
+    # --- OK / Iptal ---
+    $dOk = New-Object System.Windows.Forms.Button
+    $dOk.Text = L 'OKBtn'; $dOk.Location = New-Object System.Drawing.Point(255, 600); $dOk.Size = New-Object System.Drawing.Size(90, 30)
+    $dOk.DialogResult = 'OK'
+    $dlg.Controls.Add($dOk)
+    $dCancel = New-Object System.Windows.Forms.Button
+    $dCancel.Text = L 'CancelBtn'; $dCancel.Location = New-Object System.Drawing.Point(358, 600); $dCancel.Size = New-Object System.Drawing.Size(90, 30)
+    $dCancel.DialogResult = 'Cancel'
+    $dlg.Controls.Add($dCancel)
+    $dlg.AcceptButton = $dOk; $dlg.CancelButton = $dCancel
+
+    $dlg.BackColor = $ClrBg
+    Apply-Theme $dlg
+
+    if ($dlg.ShowDialog($form) -eq 'OK') {
+        $script:Cfg.Lang = @('en','tr')[$dLang.SelectedIndex]
+        $script:Cfg.OutDir = $(if ($rbCustom.Checked -and $dOut.Text.Trim()) { $dOut.Text.Trim() } else { '' })
+        $sfx = $dSuffix.Text.Trim()
+        $script:Cfg.Suffix = ($sfx -replace '[\\/:*?"<>|]','')   # dosya adinda gecersiz karakterleri ayikla
+        $script:Cfg.Container = $dCont.SelectedItem
+        $script:Cfg.CpuPreset = $dPreset.SelectedItem
+        $script:Cfg.AiModel = $dAiModel.SelectedItem
+        $script:Cfg.AiTile = $tiles[$dTile.SelectedIndex]
+        $script:Cfg.AiGpu = [int]$dGpu.Value
+        $script:Cfg.TempRoot = $dTemp.Text.Trim()
+        $script:Cfg.KeepTemp = $dKeep.Checked
+        $script:Cfg.RifeModel = $dRifeModel.SelectedItem
+        $script:Cfg.RifeGpuThread = [int]$dRifeThr.Value
+        Save-Config
+        $script:LangCode = $script:Cfg.Lang
+        Set-UiLanguage
+    }
+    $dlg.Dispose()
+}
+$btnSettings.Add_Click({ Show-SettingsDialog })
 
 # --- Durum ---
 $state = @{
@@ -543,6 +780,27 @@ $btnAdd.Add_Click({
 })
 $btnDel.Add_Click({ if ($lst.SelectedIndex -ge 0) { $lst.Items.RemoveAt($lst.SelectedIndex) } })
 $btnClr.Add_Click({ $lst.Items.Clear() })
+
+# Cikti yolunu ayarlara gore kur: klasor (kaynak yani / ozel) + ek + kapsayici
+function Get-OutPath([string]$srcDir, [string]$baseName, [string]$tag) {
+    $d = $srcDir
+    if ($script:Cfg.OutDir -and (Test-Path $script:Cfg.OutDir)) { $d = $script:Cfg.OutDir }
+    Join-Path $d ('{0}_{1}{2}.{3}' -f $baseName, $tag, $script:Cfg.Suffix, $script:Cfg.Container)
+}
+
+# Kapsayiciya gore akis eslemeleri: mp4 ek dosya tasiyamaz, altyazi mov_text ister
+function Get-StreamArgs([int]$srcInput) {
+    $i = "$srcInput"
+    $a = @('-map','0:v:0','-map',"${i}:a?",'-map',"${i}:s?")
+    if ($script:Cfg.Container -eq 'mp4') {
+        $c = @('-c:s','mov_text')
+    } else {
+        $a += @('-map',"${i}:d?",'-map',"${i}:t?")
+        $c = @('-c:s','copy','-c:d','copy','-c:t','copy')
+    }
+    if ($srcInput -eq 1) { $a += @('-map_metadata','1','-map_chapters','1') }
+    return @{ Maps = $a; Codecs = $c }
+}
 
 function Set-Busy([bool]$busy) {
     $btnStart.Enabled = -not $busy; $btnPrev.Enabled = -not $busy; $btnCmp.Enabled = -not $busy
@@ -593,15 +851,12 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
         $vf = "${pre}libplacebo=w=$($script:tgt.W):h=$($script:tgt.H):custom_shader_path=$(Split-Path $vfChain -Leaf)$deband"
         $ffArgs += @('-vf', $vf)
         # tum ses/altyazi/ek dosyalar korunur; video yalnizca ilk akis (kapak resimleri disarida)
-        if ($useRife) {
-            $ffArgs += @('-map','0:v:0','-map','1:a?','-map','1:s?','-map','1:d?','-map','1:t?','-map_metadata','1','-map_chapters','1')
-        } else {
-            $ffArgs += @('-map','0:v:0','-map','0:a?','-map','0:s?','-map','0:d?','-map','0:t?')
-        }
+        if ($script:Cfg.Container -eq 'mp4') { Log (L 'Mp4Note') }
+        $sa = Get-StreamArgs $(if ($useRife) { 1 } else { 0 })
+        $ffArgs += $sa.Maps
         $ffArgs += & $EncoderCmds[$cmbEnc.SelectedIndex] ([int]$numQ.Value)
         $ffArgs += $AudioCmds[$cmbAudio.SelectedIndex]
-        # -c:d copy: data akislari (or. Dolby Vision RPU) da tasinir
-        $ffArgs += @('-c:s','copy','-c:d','copy','-c:t','copy')
+        $ffArgs += $sa.Codecs
         $ffArgs += Split-ExtraArgs $txtExtra.Text
     }
     $ffArgs += @('-progress', $state.ProgFile, $out)
@@ -619,6 +874,8 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
             $vsArgs += @('-a',"fps_num=$([int][Math]::Round($script:CurFps*1000))",'-a','fps_den=1000')
         }
         if ($trim) { $vsArgs += @('-a',"start_sec=$($trim[0])",'-a',"dur_sec=$($trim[1])") }
+        # ayarlardan model ve GPU is parcacigi (rife_encode.vpy bu adlari okur)
+        $vsArgs += @('-a',"model=$($script:Cfg.RifeModel)",'-a',"gpu_thread=$($script:Cfg.RifeGpuThread)")
         $vsArgs += @($VpyScript,'-')
         # Iki sureci tek cmd altinda borula: tek tutamac, cikis kodu = ffmpeg'inki,
         # iki surecin stderr'i de ayni dosyaya akar (mevcut log/timer duzeni bozulmaz)
@@ -641,6 +898,10 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
 # --- AI upscale boru hatti (3 faz, timer uzerinden ilerler) ---
 function Clear-AiTemp {
     if ($state.Ai) {
+        if ($script:Cfg.KeepTemp) {
+            Log ((L 'KeepTempLog') -f (Split-Path $state.Ai.InDir -Parent))
+            return
+        }
         foreach ($d in @($state.Ai.InDir, $state.Ai.OutDir)) {
             if ($d) { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
         }
@@ -652,9 +913,14 @@ function Start-AiJob([string]$in, [string]$out, $trim) {
     if ($fps -le 0) { $fps = 23.976 }
     $sel = $cmbScale.SelectedItem
     if ($sel -notmatch '^([234])x') { throw (L 'AiScaleErr') }
+    $aiScale = [int]$Matches[1]
+    # animevideov3 disindaki modeller yalniz 4x calisir
+    if ($script:Cfg.AiModel -ne 'realesr-animevideov3' -and $aiScale -ne 4) { throw (L 'Ai4xOnly') }
+    $tempBase = $TempDir
+    if ($script:Cfg.TempRoot -and (Test-Path $script:Cfg.TempRoot)) { $tempBase = $script:Cfg.TempRoot }
     $state.Ai = @{
-        Phase = 'extract'; In = $in; Out = $out; Fps = $fps; Scale = [int]$Matches[1]
-        InDir = Join-Path $TempDir 'ai_in'; OutDir = Join-Path $TempDir 'ai_out'
+        Phase = 'extract'; In = $in; Out = $out; Fps = $fps; Scale = $aiScale
+        InDir = Join-Path $tempBase 'ai_in'; OutDir = Join-Path $tempBase 'ai_out'
         Trim = $trim; Total = 0
     }
     foreach ($d in @($state.Ai.InDir, $state.Ai.OutDir)) {
@@ -690,7 +956,8 @@ function Invoke-AiPhase {
         }
         'upscale' {
             $ai.Total = [IO.Directory]::GetFiles($ai.InDir, '*.png').Count
-            $a = @('-i',$ai.InDir,'-o',$ai.OutDir,'-n','realesr-animevideov3','-s',"$($ai.Scale)",'-f','png')
+            $a = @('-i',$ai.InDir,'-o',$ai.OutDir,'-n',$script:Cfg.AiModel,'-s',"$($ai.Scale)",'-f','png','-g',"$($script:Cfg.AiGpu)")
+            if ([int]$script:Cfg.AiTile -gt 0) { $a += @('-t',"$($script:Cfg.AiTile)") }
             $lblStatus.Text = (L 'AiPhase2') -f $ai.Total
             Log ('realesrgan ' + ((Quote-Args $a) -join ' '))
             $state.Proc = Start-Process -FilePath $AiExe -ArgumentList (Quote-Args $a) `
@@ -700,14 +967,16 @@ function Invoke-AiPhase {
             $a = @('-y','-hide_banner','-loglevel','warning','-framerate',"$($ai.Fps)",'-i',(Join-Path $ai.OutDir 'f%08d.png'))
             if ($ai.Trim) { $a += @('-ss',"$($ai.Trim[0])",'-t',"$($ai.Trim[1])") }   # ses girdisini ayni araliga kirpar
             $a += @('-i',$ai.In)
-            $a += @('-map','0:v:0','-map','1:a?','-map','1:s?','-map','1:d?','-map','1:t?','-map_metadata','1','-map_chapters','1')
+            if ($script:Cfg.Container -eq 'mp4') { Log (L 'Mp4Note') }
+            $sa = Get-StreamArgs 1
+            $a += $sa.Maps
             $a += & $EncoderCmds[$cmbEnc.SelectedIndex] ([int]$numQ.Value)
             # PNG (RGB) -> standart tv-range bt709 YUV; kaynak matris tahmini gerekmez.
             # trc/primaries de bt709 etiketlenir (PNG'nin sRGB etiketi sizmasin)
             $a += @('-vf','scale=out_range=tv:out_color_matrix=bt709,format=yuv420p',
                     '-color_range','tv','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709')
             $a += $AudioCmds[$cmbAudio.SelectedIndex]
-            $a += @('-c:s','copy','-c:d','copy','-c:t','copy')
+            $a += $sa.Codecs
             $a += Split-ExtraArgs $txtExtra.Text
             $a += @('-shortest','-progress',$state.ProgFile,$ai.Out)
             $lblStatus.Text = L 'AiPhase3'
@@ -764,7 +1033,8 @@ function Start-QueueItem {
     if ($cmbMode.SelectedItem -eq $AiModeName) {
         if ($cmbScale.SelectedItem -notmatch '^([234])x') { Log (L 'SkipAiScale'); Skip-Next; return }
         $s = [int]$Matches[1]
-        $out = Join-Path $d ('{0}_ai{1}x_upscale.mkv' -f $n, $s)
+        if ($script:Cfg.AiModel -ne 'realesr-animevideov3' -and $s -ne 4) { Log (L 'Ai4xOnly'); Skip-Next; return }
+        $out = Get-OutPath $d $n ('ai{0}x' -f $s)
         $lblStatus.Text = (L 'FileStatus') -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf)
         Log ('--- [{0}/{1}] {2} ({3}x{4}, {5:N1} s) -> AI x{6}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf), $mi.W, $mi.H, $mi.Duration, $s)
         Start-AiJob $in $out $null
@@ -774,7 +1044,7 @@ function Start-QueueItem {
     $script:tgt = Resolve-Target $cmbScale.SelectedItem $mi.W $mi.H
     $rifeTag = ''
     if ($chkRife.Checked -and $script:Rife.Ok) { $rifeTag = '_rife' }
-    $out = Join-Path $d ('{0}_{1}{2}_upscale.mkv' -f $n, $script:tgt.Tag, $rifeTag)
+    $out = Get-OutPath $d $n "$($script:tgt.Tag)$rifeTag"
     $lblStatus.Text = (L 'FileStatus') -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf)
     Log ('--- [{0}/{1}] {2} ({3}x{4}, {5:N1} s) -> {6} x {7}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf), $mi.W, $mi.H, $mi.Duration, $script:tgt.W, $script:tgt.H)
     Start-Job2 $in $out $null $null $chain
@@ -979,8 +1249,9 @@ $ClrLogBg   = [System.Drawing.Color]::FromArgb(0x11,0x11,0x1b)   # log zemini
 function Apply-Theme($ctrl) {
     foreach ($c in $ctrl.Controls) {
         switch ($c.GetType().Name) {
-            'Label'         { $c.ForeColor = $ClrMuted }
+            'Label'         { if ($c.Tag -ne 'head') { $c.ForeColor = $ClrMuted } }
             'CheckBox'      { $c.ForeColor = $ClrText }
+            'RadioButton'   { $c.ForeColor = $ClrText }
             'TextBox'       { $c.BackColor = $ClrSurface; $c.ForeColor = $ClrText; $c.BorderStyle = 'FixedSingle' }
             'ListBox'       { $c.BackColor = $ClrSurface; $c.ForeColor = $ClrText; $c.BorderStyle = 'FixedSingle' }
             'ComboBox'      { $c.BackColor = $ClrSurface; $c.ForeColor = $ClrText; $c.FlatStyle = 'Flat' }

@@ -23,6 +23,7 @@ stage that doubles the frame rate (24 → 48 fps).
 - **Preview** — process 10 seconds from the middle of the video and play it.
 - **Compare** — classic Lanczos vs. shader chain, side by side in one video.
 - **Encoders** — x264/x265 (CPU), H.264/HEVC/AV1 QSV, NVENC, AMF.
+- **Settings window** - language (English/Turkish), output folder/suffix/container (MKV/MP4), x264/x265 preset, AI model/tile size/GPU, custom temp folder for AI frames, RIFE model and GPU threads; saved to `%APPDATA%\Aniflow.settings.json`.
 - **Advanced ffmpeg parameters** box - pass any extra encoder options (e.g. `-preset veryslow`).
 - Data streams (Dolby Vision RPU) carried over alongside audio/subtitles/attachments.
 - Optional deband + denoise filters, audio copy or AAC/Opus re-encode,
