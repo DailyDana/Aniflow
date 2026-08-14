@@ -134,6 +134,8 @@ en = @{
     Ai4xOnly='This AI model is 4x only - pick 4x as output resolution.'
     Mp4Note='MP4 container: attachments are dropped and subtitles converted to mov_text.'
     KeepTempLog='Temp frames kept: {0}'
+    CtxTop='Move to top'; CtxUp='Move up'; CtxDown='Move down'; CtxBottom='Move to bottom'
+    CtxRemove='Remove'; CtxOpenSrc='Open source folder'; CtxOpenDst='Open output folder'
 }
 tr = @{
     Queue='Kuyruk (dosyalari buraya surukleyin, ciktilar kaynak klasore yazilir):'
@@ -206,6 +208,8 @@ tr = @{
     Ai4xOnly='Bu AI modeli yalniz 4x calisir - cikti cozunurlugu olarak 4x secin.'
     Mp4Note='MP4 kapsayici: ek dosyalar atlanir, altyazilar mov_text formatina cevrilir.'
     KeepTempLog='Gecici kareler saklandi: {0}'
+    CtxTop='En uste tasi'; CtxUp='Yukari tasi'; CtxDown='Asagi tasi'; CtxBottom='En alta tasi'
+    CtxRemove='Kaldir'; CtxOpenSrc='Kaynak klasoru ac'; CtxOpenDst='Cikti klasorunu ac'
 }
 }
 function L([string]$k) { $Strings[$script:LangCode][$k] }
@@ -417,6 +421,58 @@ $lst.AllowDrop = $true
 $lst.HorizontalScrollbar = $true
 $form.Controls.Add($lst)
 
+# --- Kuyruk sag tik menusu ---
+$ctxMenu   = New-Object System.Windows.Forms.ContextMenuStrip
+$ctxTop    = New-Object System.Windows.Forms.ToolStripMenuItem
+$ctxUp     = New-Object System.Windows.Forms.ToolStripMenuItem
+$ctxDown   = New-Object System.Windows.Forms.ToolStripMenuItem
+$ctxBottom = New-Object System.Windows.Forms.ToolStripMenuItem
+$ctxRemove = New-Object System.Windows.Forms.ToolStripMenuItem
+$ctxOpenSrc = New-Object System.Windows.Forms.ToolStripMenuItem
+$ctxOpenDst = New-Object System.Windows.Forms.ToolStripMenuItem
+[void]$ctxMenu.Items.AddRange(@($ctxTop, $ctxUp, $ctxDown, $ctxBottom,
+    (New-Object System.Windows.Forms.ToolStripSeparator), $ctxRemove,
+    (New-Object System.Windows.Forms.ToolStripSeparator), $ctxOpenSrc, $ctxOpenDst))
+$lst.ContextMenuStrip = $ctxMenu
+
+# sag tiklanan ogeyi sec; bos alana tiklandiysa menuyu acma
+$lst.Add_MouseDown({
+    if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
+        $i = $lst.IndexFromPoint($_.Location)
+        if ($i -ge 0) { $lst.SelectedIndex = $i }
+    }
+})
+$ctxMenu.Add_Opening({ if ($lst.SelectedIndex -lt 0) { $_.Cancel = $true } })
+
+function Move-QueueItem([int]$to) {
+    $i = $lst.SelectedIndex
+    if ($i -lt 0) { return }
+    $item = $lst.Items[$i]
+    $lst.Items.RemoveAt($i)
+    if ($to -lt 0) { $to = 0 }
+    if ($to -gt $lst.Items.Count) { $to = $lst.Items.Count }
+    $lst.Items.Insert($to, $item)
+    $lst.SelectedIndex = $to
+}
+$ctxTop.Add_Click({ Move-QueueItem 0 })
+$ctxUp.Add_Click({ $i = $lst.SelectedIndex; if ($i -gt 0) { Move-QueueItem ($i - 1) } })
+$ctxDown.Add_Click({ $i = $lst.SelectedIndex; if ($i -ge 0 -and $i -lt ($lst.Items.Count - 1)) { Move-QueueItem ($i + 1) } })
+$ctxBottom.Add_Click({ Move-QueueItem ($lst.Items.Count - 1) })
+$ctxRemove.Add_Click({ if ($lst.SelectedIndex -ge 0) { $lst.Items.RemoveAt($lst.SelectedIndex) } })
+$ctxOpenSrc.Add_Click({
+    $i = $lst.SelectedIndex
+    if ($i -ge 0 -and (Test-Path $lst.Items[$i])) {
+        Start-Process explorer.exe "/select,`"$($lst.Items[$i])`""
+    }
+})
+$ctxOpenDst.Add_Click({
+    $i = $lst.SelectedIndex
+    if ($i -lt 0) { return }
+    $d = Split-Path $lst.Items[$i] -Parent
+    if ($script:Cfg.OutDir -and (Test-Path $script:Cfg.OutDir)) { $d = $script:Cfg.OutDir }
+    if (Test-Path $d) { Start-Process explorer.exe "`"$d`"" }
+})
+
 $btnAdd = New-Object System.Windows.Forms.Button
 $btnAdd.Location = New-Object System.Drawing.Point(575, 38)
 $btnAdd.Size = New-Object System.Drawing.Size(85, 28); $btnAdd.Anchor = 'Top,Right'
@@ -557,6 +613,8 @@ function Set-UiLanguage {
     $chkDeband.Text = L 'Deband'; $chkDenoise.Text = L 'Denoise'; $chkRife.Text = L 'Rife'
     $btnStart.Text = L 'Start'; $btnCancel.Text = L 'Cancel'; $btnPrev.Text = L 'Preview'; $btnCmp.Text = L 'Compare'
     $btnSettings.Text = L 'Settings'
+    $ctxTop.Text = L 'CtxTop'; $ctxUp.Text = L 'CtxUp'; $ctxDown.Text = L 'CtxDown'; $ctxBottom.Text = L 'CtxBottom'
+    $ctxRemove.Text = L 'CtxRemove'; $ctxOpenSrc.Text = L 'CtxOpenSrc'; $ctxOpenDst.Text = L 'CtxOpenDst'
     foreach ($pair in @(@($cmbEnc,'EncoderItems'), @($cmbScale,'ScaleItems'), @($cmbAudio,'AudioItems'), @($cmbFinish,'FinishItems'))) {
         $cmb = $pair[0]
         $i = $cmb.SelectedIndex
@@ -1280,6 +1338,10 @@ $txtLog.BackColor = $ClrLogBg
 $txtLog.ForeColor = $ClrMuted
 $txtLog.BorderStyle = 'FixedSingle'
 $lblStatus.ForeColor = $ClrText
+# sag tik menusu karanlik tema
+$ctxMenu.BackColor = $ClrSurface
+$ctxMenu.ForeColor = $ClrText
+foreach ($mi in $ctxMenu.Items) { $mi.BackColor = $ClrSurface; $mi.ForeColor = $ClrText }
 
 Log ((L 'RootLog') -f $Root)
 if (-not $script:Rife.Ok) {
