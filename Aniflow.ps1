@@ -1,8 +1,8 @@
-# Aniflow — Anime4K / FSRCNNX Video Upscaler GUI (TASINABILIR SURUM)
-# Yazar: Daily Dana
-# Tum bagimliliklar bu klasorde: bin\ffmpeg.exe + shaders\*.glsl
-# Windows PowerShell 5.1+ (Windows'ta yerlesik) ile calisir, kurulum istemez.
-# Istege bagli RIFE 2x kare interpolasyonu: vspipe (Python + VapourSynth) gerektirir.
+# Aniflow — Anime4K / FSRCNNX Video Upscaler GUI (PORTABLE)
+# Author: Daily Dana
+# All dependencies live in this folder: bin\ffmpeg.exe + shaders\*.glsl (+ realesrgan\, vapoursynth\)
+# Runs on Windows PowerShell 5.1+ (built into Windows), no installation needed.
+# Optional RIFE 2x interpolation requires vspipe (Python + VapourSynth).
 param([switch]$SelfTest)
 
 $ErrorActionPreference = 'Stop'
@@ -12,13 +12,143 @@ Add-Type -AssemblyName System.Drawing
 $Root    = $PSScriptRoot
 $FFmpeg  = Join-Path $Root 'bin\ffmpeg.exe'
 $Shaders = Join-Path $Root 'shaders'
-$TempDir = Join-Path $env:TEMP 'UpscaleGUI'
+$TempDir = Join-Path $env:TEMP 'Aniflow'
 if (-not (Test-Path $TempDir)) { New-Item -ItemType Directory -Path $TempDir | Out-Null }
 
 # Kodlama surerken sistemin uykuya gecmesini engellemek icin
 Add-Type -Namespace Win32 -Name Power -MemberDefinition `
     '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
 $ES_CONTINUOUS = [uint32]'0x80000000'; $ES_SYSTEM_REQUIRED = [uint32]'0x00000001'
+
+# ================= Dil / Language =================
+# Varsayilan Ingilizce; secim %APPDATA%\Aniflow.lang dosyasinda saklanir.
+$LangFile = Join-Path $env:APPDATA 'Aniflow.lang'
+$script:LangCode = 'en'
+if (Test-Path $LangFile) {
+    $lc = (Get-Content $LangFile -TotalCount 1 -ErrorAction SilentlyContinue)
+    if ($lc) { $lc = $lc.Trim() }
+    if ($lc -in @('en','tr')) { $script:LangCode = $lc }
+}
+
+$Strings = @{
+en = @{
+    Queue='Queue (drag files here; outputs are written next to the source):'
+    Add='Add...'; Remove='Remove'; Clear='Clear'
+    Mode='Shader mode:'; Encoder='Encoder:'; Quality='Quality (lower = better):'
+    Scale='Output resolution:'; Audio='Audio:'; Finish='When done:'
+    Extra='Advanced ffmpeg parameters (optional):'
+    Deband='Deband (color banding)'; Denoise='Denoise (hqdn3d)'; Rife='RIFE 2x frame interpolation'
+    Start='Start'; Cancel='Cancel'; Preview='Preview (10 s)'; Compare='Compare (side by side)'
+    ScaleItems=@('2x (double input)','3x (triple input)','4x (quadruple - double modes full power)','1080p (Full HD)','1440p (QHD)','2160p (4K)')
+    AudioItems=@('Copy (lossless)','AAC 192k','Opus 160k')
+    FinishItems=@('Do nothing','Play sound','Sleep','Shut down (30 s)')
+    EncoderItems=@('x264 (CPU, works everywhere)','x265 (CPU, works everywhere)','H.264 QSV (Intel GPU)','HEVC QSV (Intel GPU)','AV1 QSV (Intel Arc)','H.264 NVENC (NVIDIA GPU)','HEVC NVENC (NVIDIA GPU)','H.264 AMF (AMD GPU)','HEVC AMF (AMD GPU)')
+    AllFiles='All files'
+    Ready='Ready. Add videos to the queue; Preview/Compare use one file, Start runs the whole queue.'
+    ReadyShort='Ready.'
+    RootLog='Root folder: {0}'
+    RifeOff='RIFE disabled: {0}'
+    AiOff='AI mode disabled: {0}'
+    QueueEmpty='Queue is empty - add files.'
+    FfmpegMissing='ffmpeg not found: {0}'
+    FileStatus='File {0}/{1}: {2}'
+    FilePrefix='File {0}/{1} - '
+    Speed='speed'; Left='left'
+    QueueDone='Queue finished ({0} files).'
+    QueueDoneLog='=== QUEUE FINISHED ==='
+    Sleeping='Entering sleep mode...'
+    Shutdown='SHUTDOWN in 30 s! Cancel with: shutdown /a'
+    Done='DONE ({0:N1} MB) -> {1}'
+    Cancelled='Cancelled.'
+    ErrEncode='ERROR: encoding exited with code {0}. {1}'
+    HintHw='If you picked a hardware encoder your GPU may not support it; try x264.'
+    HintRife='The RIFE pipeline may have failed - check the vspipe lines in the log.'
+    PrevFail='Preview/comparison failed - check the log.'
+    SkipMissing='SKIPPED (not found): {0}'
+    SkipAiScale='SKIPPED: pick 2x/3x/4x in AI mode.'
+    AiScaleErr='In AI mode pick 2x/3x/4x as output resolution (p targets are not supported).'
+    RifeIgnored='Note: RIFE is ignored in AI mode.'
+    RifeBadName='WARNING: file name contains % & ^ ! - RIFE skipped for this file (cmd limitation).'
+    AiDiskLog='AI upscale x{0}: ~{1} frames, estimated temp disk ~{2} GB ({3})'
+    AiPhase1='AI 1/3: extracting frames...'
+    AiPhase2='AI 2/3: upscaling {0} frames...'
+    AiPhase2Tick='AI 2/3: frame {0}/{1}'
+    AiPhase3='AI 3/3: encoding...'
+    AiFail="ERROR: AI stage '{0}' exited with code {1}."
+    AiFailStatus='AI job failed - check the log.'
+    PrevPrep='Preparing preview...'
+    AiPrevPrep='Preparing AI preview...'
+    PrevLog='--- Preview: {0} (midpoint {1:N0}s)'
+    AiPrevLog='--- AI Preview: {0} (midpoint {1:N0}s)'
+    CmpPrep='Preparing comparison...'
+    CmpNote='Note: comparison runs without RIFE.'
+    CmpLog='--- Comparison: left=lanczos, right={0}'
+    CmpAiErr='Comparison is not supported in AI mode; pick a shader mode.'
+    CmpNoRes='Could not read input resolution.'
+    PrevFirst='Add a file to the queue first.'
+    NoRes='Could not read input resolution; pick a multiplier (2x/3x/4x).'
+    Error='Error'
+}
+tr = @{
+    Queue='Kuyruk (dosyalari buraya surukleyin, ciktilar kaynak klasore yazilir):'
+    Add='Ekle...'; Remove='Kaldir'; Clear='Temizle'
+    Mode='Shader modu:'; Encoder='Kodlayici:'; Quality='Kalite (dusuk = iyi):'
+    Scale='Cikti cozunurlugu:'; Audio='Ses:'; Finish='Bitince:'
+    Extra='Gelismis ffmpeg parametreleri (istege bagli):'
+    Deband='Deband (renk bantlari)'; Denoise='Denoise (hqdn3d)'; Rife='RIFE 2x kare interpolasyonu'
+    Start='Baslat'; Cancel='Iptal'; Preview='Onizleme (10 sn)'; Compare='Karsilastir (yan yana)'
+    ScaleItems=@('2x (girdinin 2 kati)','3x (girdinin 3 kati)','4x (girdinin 4 kati - cift modlar tam guc)','1080p (Full HD)','1440p (QHD)','2160p (4K)')
+    AudioItems=@('Kopyala (kayipsiz)','AAC 192k','Opus 160k')
+    FinishItems=@('Hicbir sey yapma','Ses cal','Bilgisayari uyut','Bilgisayari kapat (30 sn)')
+    EncoderItems=@('x264 (CPU, her yerde calisir)','x265 (CPU, her yerde calisir)','H.264 QSV (Intel GPU)','HEVC QSV (Intel GPU)','AV1 QSV (Intel Arc)','H.264 NVENC (NVIDIA GPU)','HEVC NVENC (NVIDIA GPU)','H.264 AMF (AMD GPU)','HEVC AMF (AMD GPU)')
+    AllFiles='Tum dosyalar'
+    Ready='Hazir. Kuyruga video ekleyin; Onizleme/Karsilastir tek dosyayla, Baslat tum kuyrukla calisir.'
+    ReadyShort='Hazir.'
+    RootLog='Kok klasor: {0}'
+    RifeOff='RIFE devre disi: {0}'
+    AiOff='AI modu devre disi: {0}'
+    QueueEmpty='Kuyruk bos - dosya ekleyin.'
+    FfmpegMissing='ffmpeg bulunamadi: {0}'
+    FileStatus='Dosya {0}/{1}: {2}'
+    FilePrefix='Dosya {0}/{1} - '
+    Speed='hiz'; Left='kalan'
+    QueueDone='Kuyruk tamamlandi ({0} dosya).'
+    QueueDoneLog='=== KUYRUK TAMAMLANDI ==='
+    Sleeping='Uyku moduna geciliyor...'
+    Shutdown='KAPATMA 30 sn icinde! Iptal: shutdown /a'
+    Done='TAMAM ({0:N1} MB) -> {1}'
+    Cancelled='Iptal edildi.'
+    ErrEncode='HATA: kodlama {0} kodu ile bitti. {1}'
+    HintHw='Donanim kodlayici sectiyseniz bu GPU desteklemiyor olabilir; x264''u deneyin.'
+    HintRife='RIFE hattinda hata olabilir - log''daki vspipe satirlarina bakin.'
+    PrevFail='Onizleme/karsilastirma basarisiz - log''a bakin.'
+    SkipMissing='ATLANDI (bulunamadi): {0}'
+    SkipAiScale='ATLANDI: AI modunda 2x/3x/4x secin.'
+    AiScaleErr='AI modunda cikti cozunurlugu olarak 2x/3x/4x secin (p hedefleri desteklenmez).'
+    RifeIgnored='Not: RIFE, AI modunda yok sayilir.'
+    RifeBadName='UYARI: dosya adinda % & ^ ! var - RIFE bu dosya icin atlandi (cmd kisiti).'
+    AiDiskLog='AI upscale x{0}: ~{1} kare, gecici disk tahmini ~{2} GB ({3})'
+    AiPhase1='AI 1/3: kareler cikariliyor...'
+    AiPhase2='AI 2/3: {0} kare upscale ediliyor...'
+    AiPhase2Tick='AI 2/3: kare {0}/{1}'
+    AiPhase3='AI 3/3: kodlaniyor...'
+    AiFail="HATA: AI asamasi '{0}' {1} kodu ile bitti."
+    AiFailStatus='AI islemi basarisiz - log''a bakin.'
+    PrevPrep='Onizleme hazirlaniyor...'
+    AiPrevPrep='AI onizleme hazirlaniyor...'
+    PrevLog='--- Onizleme: {0} (orta nokta {1:N0}. sn)'
+    AiPrevLog='--- AI Onizleme: {0} (orta nokta {1:N0}. sn)'
+    CmpPrep='Karsilastirma hazirlaniyor...'
+    CmpNote='Not: karsilastirma RIFE olmadan yapilir.'
+    CmpLog='--- Karsilastirma: sol=lanczos, sag={0}'
+    CmpAiErr='Karsilastirma AI modunda desteklenmiyor; bir shader modu secin.'
+    CmpNoRes='Girdi cozunurlugu okunamadi.'
+    PrevFirst='Once kuyruga dosya ekleyin.'
+    NoRes='Girdi cozunurlugu okunamadi; katsayi (2x/3x/4x) secin.'
+    Error='Hata'
+}
+}
+function L([string]$k) { $Strings[$script:LangCode][$k] }
 
 # --- Shader modlari: ad -> zincirdeki dosyalar (sirali) ---
 $Modes = [ordered]@{
@@ -39,27 +169,25 @@ $Modes = [ordered]@{
     'FSRCNNX x2 16 + Krig + Sharpen'      = @('FSRCNNX_x2_16-0-4-1.glsl','KrigBilateral.glsl','adaptive-sharpen.glsl')
 }
 
-# --- Kodlayicilar: CPU'lar her makinede calisir; donanim olanlar GPU'ya bagli,
-# uyumsuz GPU'da ffmpeg hata verir ve log penceresinde gorunur ---
-$Encoders = [ordered]@{
-    'x264 (CPU, her yerde calisir)'  = { param($q) @('-c:v','libx264','-crf',"$q",'-preset','medium') }
-    'x265 (CPU, her yerde calisir)'  = { param($q) @('-c:v','libx265','-crf',"$q",'-preset','medium') }
-    'H.264 QSV (Intel GPU)'          = { param($q) @('-c:v','h264_qsv','-global_quality',"$q") }
-    'HEVC QSV (Intel GPU)'           = { param($q) @('-c:v','hevc_qsv','-global_quality',"$q") }
-    'AV1 QSV (Intel Arc)'            = { param($q) @('-c:v','av1_qsv','-global_quality',"$q") }
-    'H.264 NVENC (NVIDIA GPU)'       = { param($q) @('-c:v','h264_nvenc','-rc','vbr','-cq',"$q",'-b:v','0') }
-    'HEVC NVENC (NVIDIA GPU)'        = { param($q) @('-c:v','hevc_nvenc','-rc','vbr','-cq',"$q",'-b:v','0') }
-    'H.264 AMF (AMD GPU)'            = { param($q) @('-c:v','h264_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") }
-    'HEVC AMF (AMD GPU)'             = { param($q) @('-c:v','hevc_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") }
-}
+# --- Kodlayicilar: dizin sirasi EncoderItems dizisiyle esler (dil bagimsiz) ---
+$EncoderCmds = @(
+    { param($q) @('-c:v','libx264','-crf',"$q",'-preset','medium') }
+    { param($q) @('-c:v','libx265','-crf',"$q",'-preset','medium') }
+    { param($q) @('-c:v','h264_qsv','-global_quality',"$q") }
+    { param($q) @('-c:v','hevc_qsv','-global_quality',"$q") }
+    { param($q) @('-c:v','av1_qsv','-global_quality',"$q") }
+    { param($q) @('-c:v','h264_nvenc','-rc','vbr','-cq',"$q",'-b:v','0') }
+    { param($q) @('-c:v','hevc_nvenc','-rc','vbr','-cq',"$q",'-b:v','0') }
+    { param($q) @('-c:v','h264_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") }
+    { param($q) @('-c:v','hevc_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") }
+)
 
-$AudioOpts = [ordered]@{
-    'Kopyala (kayipsiz)'   = @('-c:a','copy')
-    'AAC 192k'             = @('-c:a','aac','-b:a','192k')
-    'Opus 160k'            = @('-c:a','libopus','-b:a','160k')
-}
-
-$FinishOpts = @('Hicbir sey yapma','Ses cal','Bilgisayari uyut','Bilgisayari kapat (30 sn)')
+# Ses secenekleri: dizin sirasi AudioItems ile esler
+$AudioCmds = @(
+    @('-c:a','copy')
+    @('-c:a','aac','-b:a','192k')
+    @('-c:a','libopus','-b:a','160k')
+)
 
 # Zincir dosyasini birlestir. Shaders klasoru yazilabilirse oraya, degilse
 # (salt okunur USB vb.) TEMP'e yazar. Donus: zincirin tam yolu.
@@ -67,7 +195,7 @@ function Get-ChainFile([string]$modeName) {
     $files = $Modes[$modeName]
     foreach ($f in $files) {
         if (-not (Test-Path (Join-Path $Shaders $f))) {
-            throw "Shader eksik: $f (klasor: $Shaders)"
+            throw "Shader missing: $f (folder: $Shaders)"
         }
     }
     $safe  = ($modeName -replace '[^\w]+','_').Trim('_')
@@ -83,7 +211,7 @@ function Get-ChainFile([string]$modeName) {
             return $chain
         } catch { continue }   # yazilamadi -> siradaki klasoru dene
     }
-    throw 'Zincir dosyasi hicbir klasore yazilamadi.'
+    throw 'Could not write the chain file to any folder.'
 }
 
 function Get-MediaInfo([string]$path) {
@@ -112,7 +240,7 @@ function Resolve-Target([string]$sel, [int]$inW, [int]$inH) {
     }
     if ($sel -match '(\d{3,4})p') {
         $t = [int]$Matches[1]
-        if ($inW -le 0 -or $inH -le 0) { throw 'Girdi cozunurlugu okunamadi; katsayi (2x/3x/4x) secin.' }
+        if ($inW -le 0 -or $inH -le 0) { throw (L 'NoRes') }
         $w = [Math]::Round($inW * $t / $inH / 2) * 2
         return @{ W = "$w"; H = "$t"; NumW = $w; NumH = $t; Tag = "${t}p" }
     }
@@ -141,7 +269,7 @@ $VpyScript = Join-Path $VapourDir 'rife_encode.vpy'
 function Find-RifeSupport {
     $r = @{ Ok = $false; Vspipe = ''; RifeDll = ''; ModelDir = ''; SourceDll = ''; Reason = '' }
     $vs = Get-Command vspipe.exe -ErrorAction SilentlyContinue
-    if (-not $vs) { $r.Reason = 'vspipe.exe PATH''te yok (Python + "pip install vapoursynth" gerekir)'; return $r }
+    if (-not $vs) { $r.Reason = 'vspipe.exe not on PATH (needs Python + "pip install vapoursynth")'; return $r }
     $r.Vspipe = $vs.Source
     # RIFE eklentisi/modeli: once proje klasoru, sonra mpv kurulumu
     foreach ($d in @($VapourDir, (Join-Path $env:APPDATA 'mpv\vapoursynth'))) {
@@ -149,11 +277,11 @@ function Find-RifeSupport {
         $mod = Join-Path $d 'models\rife-v4.6_ensembleFalse'
         if ((Test-Path $dll) -and (Test-Path $mod)) { $r.RifeDll = $dll; $r.ModelDir = Join-Path $d 'models'; break }
     }
-    if (-not $r.RifeDll) { $r.Reason = 'RIFE eklentisi/modeli bulunamadi (setup.ps1 calistirin)'; return $r }
+    if (-not $r.RifeDll) { $r.Reason = 'RIFE plugin/model not found (run setup.ps1)'; return $r }
     $bs = Join-Path $VapourDir 'bestsource.dll'
-    if (-not (Test-Path $bs)) { $r.Reason = 'bestsource.dll eksik (setup.ps1 calistirin)'; return $r }
+    if (-not (Test-Path $bs)) { $r.Reason = 'bestsource.dll missing (run setup.ps1)'; return $r }
     $r.SourceDll = $bs
-    if (-not (Test-Path $VpyScript)) { $r.Reason = 'rife_encode.vpy eksik'; return $r }
+    if (-not (Test-Path $VpyScript)) { $r.Reason = 'rife_encode.vpy missing'; return $r }
     $r.Ok = $true
     return $r
 }
@@ -162,15 +290,17 @@ $script:CurFps = 0.0
 
 # --- AI upscale: Real-ESRGAN animevideov3 (offline, ncnn Vulkan) ---
 # Boru hatti 3 fazli: ffmpeg kare cikarir -> realesrgan klasoru isler -> ffmpeg kodlar.
+# Ara format PNG: kayipsiz VE renk matrisi/aralik belirsizligi yok (jpg 601-full
+# varsayimi 709 kaynaklarda mor/karanlik tonlari kaydiriyor, bloklari belirginlestiriyordu).
 $AiDir  = Join-Path $Root 'realesrgan'
 $AiExe  = Join-Path $AiDir 'realesrgan-ncnn-vulkan.exe'
 $AiModeName = 'AI: Real-ESRGAN animevideov3 (offline)'
 
 function Find-AiSupport {
     $r = @{ Ok = $false; Reason = '' }
-    if (-not (Test-Path $AiExe)) { $r.Reason = 'realesrgan-ncnn-vulkan.exe eksik (setup.ps1 calistirin)'; return $r }
+    if (-not (Test-Path $AiExe)) { $r.Reason = 'realesrgan-ncnn-vulkan.exe missing (run setup.ps1)'; return $r }
     if (-not (Test-Path (Join-Path $AiDir 'models\realesr-animevideov3-x2.param'))) {
-        $r.Reason = 'animevideov3 modeli eksik (setup.ps1 calistirin)'; return $r
+        $r.Reason = 'animevideov3 model missing (run setup.ps1)'; return $r
     }
     $r.Ok = $true
     return $r
@@ -183,19 +313,20 @@ if ($SelfTest) {
         $c = Get-ChainFile $m
         '{0} -> {1} ({2:N0} KB)' -f $m, $c, ((Get-Item $c).Length/1KB)
     }
-    foreach ($s in @('2x (girdinin 2 kati)','4x (cift modlar tam guc)','1080p (Full HD)','1440p (QHD)','2160p (4K)')) {
+    foreach ($s in @('2x (double input)','4x (quadruple)','1080p (Full HD)','1440p (QHD)','2160p (4K)')) {
         $t = Resolve-Target $s 1920 1080
         '{0} [1920x1080] -> w={1} h={2} tag={3}' -f $s, $t.W, $t.H, $t.Tag
     }
-    'ai-destek: {0}{1}' -f $script:Ai.Ok, $(if (-not $script:Ai.Ok) { ' (' + $script:Ai.Reason + ')' } else { '' })
-    'rife-destek: {0}{1}' -f $script:Rife.Ok, $(if (-not $script:Rife.Ok) { ' (' + $script:Rife.Reason + ')' } else { '' })
+    'lang: ' + $script:LangCode
+    'ai-support: {0}{1}' -f $script:Ai.Ok, $(if (-not $script:Ai.Ok) { ' (' + $script:Ai.Reason + ')' } else { '' })
+    'rife-support: {0}{1}' -f $script:Rife.Ok, $(if (-not $script:Rife.Ok) { ' (' + $script:Rife.Reason + ')' } else { '' })
     if ($script:Rife.Ok) {
         # input verilmeyince vpy 48 karelik BlankClip uretir; "Frames: 96" gorunmesi
         # iki DLL'in yuklendigini ve RIFE'in GPU'da 2x kurulabildigini kanitlar
         $ErrorActionPreference = 'Continue'
         $o = & $script:Rife.Vspipe --info -a "rife_dll=$($script:Rife.RifeDll)" -a "source_dll=$($script:Rife.SourceDll)" -a "model_dir=$($script:Rife.ModelDir)" $VpyScript 2>&1 | Out-String
         $ErrorActionPreference = 'Stop'
-        'rife-vpy: ' + $(if ($o -match 'Frames:\s*96') { 'OK (48 kare -> 96)' } else { 'HATA: ' + $o.Trim() })
+        'rife-vpy: ' + $(if ($o -match 'Frames:\s*96') { 'OK (48 -> 96 frames)' } else { 'ERROR: ' + $o.Trim() })
     }
     exit 0
 }
@@ -215,7 +346,7 @@ function Add-Label($text, $x, $y) {
 }
 
 # --- Kuyruk ---
-Add-Label 'Kuyruk (dosyalari buraya surukleyin, ciktilar kaynak klasore yazilir):' 15 15 | Out-Null
+$lblQueue = Add-Label '' 15 15
 $lst = New-Object System.Windows.Forms.ListBox
 $lst.Location = New-Object System.Drawing.Point(15, 38)
 $lst.Size = New-Object System.Drawing.Size(550, 112)
@@ -225,20 +356,29 @@ $lst.HorizontalScrollbar = $true
 $form.Controls.Add($lst)
 
 $btnAdd = New-Object System.Windows.Forms.Button
-$btnAdd.Text = 'Ekle...'; $btnAdd.Location = New-Object System.Drawing.Point(575, 38)
+$btnAdd.Location = New-Object System.Drawing.Point(575, 38)
 $btnAdd.Size = New-Object System.Drawing.Size(85, 28); $btnAdd.Anchor = 'Top,Right'
 $form.Controls.Add($btnAdd)
 $btnDel = New-Object System.Windows.Forms.Button
-$btnDel.Text = 'Kaldir'; $btnDel.Location = New-Object System.Drawing.Point(575, 72)
+$btnDel.Location = New-Object System.Drawing.Point(575, 72)
 $btnDel.Size = New-Object System.Drawing.Size(85, 28); $btnDel.Anchor = 'Top,Right'
 $form.Controls.Add($btnDel)
 $btnClr = New-Object System.Windows.Forms.Button
-$btnClr.Text = 'Temizle'; $btnClr.Location = New-Object System.Drawing.Point(575, 106)
+$btnClr.Location = New-Object System.Drawing.Point(575, 106)
 $btnClr.Size = New-Object System.Drawing.Size(85, 28); $btnClr.Anchor = 'Top,Right'
 $form.Controls.Add($btnClr)
 
+# Dil secici / language picker
+$cmbLang = New-Object System.Windows.Forms.ComboBox
+$cmbLang.Location = New-Object System.Drawing.Point(575, 140)
+$cmbLang.Size = New-Object System.Drawing.Size(85, 24)
+$cmbLang.DropDownStyle = 'DropDownList'; $cmbLang.Anchor = 'Top,Right'
+@('English','Turkce') | ForEach-Object { [void]$cmbLang.Items.Add($_) }
+$cmbLang.SelectedIndex = $(if ($script:LangCode -eq 'tr') { 1 } else { 0 })
+$form.Controls.Add($cmbLang)
+
 # --- Mod / kodlayici / kalite ---
-Add-Label 'Shader modu:' 15 162 | Out-Null
+$lblMode = Add-Label '' 15 162
 $cmbMode = New-Object System.Windows.Forms.ComboBox
 $cmbMode.Location = New-Object System.Drawing.Point(15, 185)
 $cmbMode.Size = New-Object System.Drawing.Size(250, 24)
@@ -248,16 +388,14 @@ if ($script:Ai.Ok) { [void]$cmbMode.Items.Add($AiModeName) }
 $cmbMode.SelectedIndex = 0
 $form.Controls.Add($cmbMode)
 
-Add-Label 'Kodlayici:' 285 162 | Out-Null
+$lblEnc = Add-Label '' 285 162
 $cmbEnc = New-Object System.Windows.Forms.ComboBox
 $cmbEnc.Location = New-Object System.Drawing.Point(285, 185)
 $cmbEnc.Size = New-Object System.Drawing.Size(215, 24)
 $cmbEnc.DropDownStyle = 'DropDownList'
-$Encoders.Keys | ForEach-Object { [void]$cmbEnc.Items.Add($_) }
-$cmbEnc.SelectedIndex = 0
 $form.Controls.Add($cmbEnc)
 
-Add-Label 'Kalite (dusuk = iyi):' 520 162 | Out-Null
+$lblQ = Add-Label '' 520 162
 $numQ = New-Object System.Windows.Forms.NumericUpDown
 $numQ.Location = New-Object System.Drawing.Point(520, 185)
 $numQ.Size = New-Object System.Drawing.Size(70, 24)
@@ -265,79 +403,65 @@ $numQ.Minimum = 1; $numQ.Maximum = 51; $numQ.Value = 18
 $form.Controls.Add($numQ)
 
 # --- Cozunurluk / ses / bitince ---
-Add-Label 'Cikti cozunurlugu:' 15 220 | Out-Null
+$lblScale = Add-Label '' 15 220
 $cmbScale = New-Object System.Windows.Forms.ComboBox
 $cmbScale.Location = New-Object System.Drawing.Point(15, 243)
 $cmbScale.Size = New-Object System.Drawing.Size(250, 24)
 $cmbScale.DropDownStyle = 'DropDownList'
-@('2x (girdinin 2 kati)','3x (girdinin 3 kati)','4x (girdinin 4 kati - cift modlar tam guc)',
-  '1080p (Full HD)','1440p (QHD)','2160p (4K)') | ForEach-Object { [void]$cmbScale.Items.Add($_) }
-$cmbScale.SelectedIndex = 0
 $form.Controls.Add($cmbScale)
 
-Add-Label 'Ses:' 285 220 | Out-Null
+$lblAudio = Add-Label '' 285 220
 $cmbAudio = New-Object System.Windows.Forms.ComboBox
 $cmbAudio.Location = New-Object System.Drawing.Point(285, 243)
 $cmbAudio.Size = New-Object System.Drawing.Size(150, 24)
 $cmbAudio.DropDownStyle = 'DropDownList'
-$AudioOpts.Keys | ForEach-Object { [void]$cmbAudio.Items.Add($_) }
-$cmbAudio.SelectedIndex = 0
 $form.Controls.Add($cmbAudio)
 
-Add-Label 'Bitince:' 455 220 | Out-Null
+$lblFinish = Add-Label '' 455 220
 $cmbFinish = New-Object System.Windows.Forms.ComboBox
 $cmbFinish.Location = New-Object System.Drawing.Point(455, 243)
 $cmbFinish.Size = New-Object System.Drawing.Size(205, 24)
 $cmbFinish.DropDownStyle = 'DropDownList'
-$FinishOpts | ForEach-Object { [void]$cmbFinish.Items.Add($_) }
-$cmbFinish.SelectedIndex = 0
 $form.Controls.Add($cmbFinish)
 
 # --- Ek filtreler ---
 $chkDeband = New-Object System.Windows.Forms.CheckBox
-$chkDeband.Text = 'Deband (renk bantlari)'
 $chkDeband.Location = New-Object System.Drawing.Point(15, 280)
 $chkDeband.AutoSize = $true
 $form.Controls.Add($chkDeband)
 $chkDenoise = New-Object System.Windows.Forms.CheckBox
-$chkDenoise.Text = 'Denoise (hqdn3d)'
 $chkDenoise.Location = New-Object System.Drawing.Point(210, 280)
 $chkDenoise.AutoSize = $true
 $form.Controls.Add($chkDenoise)
 $chkRife = New-Object System.Windows.Forms.CheckBox
-$chkRife.Text = 'RIFE 2x kare interpolasyonu'
 $chkRife.Location = New-Object System.Drawing.Point(405, 280)
 $chkRife.AutoSize = $true
 $form.Controls.Add($chkRife)
 
 # --- Dugmeler ---
 $btnStart = New-Object System.Windows.Forms.Button
-$btnStart.Text = 'Baslat'
 $btnStart.Location = New-Object System.Drawing.Point(15, 312)
 $btnStart.Size = New-Object System.Drawing.Size(115, 32)
 $form.Controls.Add($btnStart)
 
 $btnCancel = New-Object System.Windows.Forms.Button
-$btnCancel.Text = 'Iptal'
 $btnCancel.Location = New-Object System.Drawing.Point(140, 312)
 $btnCancel.Size = New-Object System.Drawing.Size(115, 32)
 $btnCancel.Enabled = $false
 $form.Controls.Add($btnCancel)
 
 $btnPrev = New-Object System.Windows.Forms.Button
-$btnPrev.Text = 'Onizleme (10 sn)'
 $btnPrev.Location = New-Object System.Drawing.Point(285, 312)
 $btnPrev.Size = New-Object System.Drawing.Size(150, 32)
 $form.Controls.Add($btnPrev)
 
 $btnCmp = New-Object System.Windows.Forms.Button
-$btnCmp.Text = 'Karsilastir (yan yana)'
 $btnCmp.Location = New-Object System.Drawing.Point(445, 312)
 $btnCmp.Size = New-Object System.Drawing.Size(170, 32)
 $form.Controls.Add($btnCmp)
 
 # --- Gelismis parametreler ---
-Add-Label 'Gelismis ffmpeg parametreleri (istege bagli):' 15 354 | Out-Null
+$lblExtra = Add-Label '' 15 354
 $txtExtra = New-Object System.Windows.Forms.TextBox
 $txtExtra.Location = New-Object System.Drawing.Point(330, 351)
 $txtExtra.Size = New-Object System.Drawing.Size(330, 24)
@@ -350,7 +474,7 @@ $bar.Size = New-Object System.Drawing.Size(645, 22)
 $bar.Anchor = 'Top,Left,Right'
 $form.Controls.Add($bar)
 
-$lblStatus = Add-Label 'Hazir.' 15 420
+$lblStatus = Add-Label '' 15 420
 
 $txtLog = New-Object System.Windows.Forms.TextBox
 $txtLog.Location = New-Object System.Drawing.Point(15, 446)
@@ -363,6 +487,30 @@ $form.Controls.Add($txtLog)
 function Log([string]$msg) {
     $txtLog.AppendText(('[{0:HH:mm:ss}] {1}{2}' -f (Get-Date), $msg, [Environment]::NewLine))
 }
+
+# Tum metinleri secili dile uygular; comboset icerigini secim korunarak yeniler
+function Set-UiLanguage {
+    $lblQueue.Text = L 'Queue'; $btnAdd.Text = L 'Add'; $btnDel.Text = L 'Remove'; $btnClr.Text = L 'Clear'
+    $lblMode.Text = L 'Mode'; $lblEnc.Text = L 'Encoder'; $lblQ.Text = L 'Quality'
+    $lblScale.Text = L 'Scale'; $lblAudio.Text = L 'Audio'; $lblFinish.Text = L 'Finish'
+    $lblExtra.Text = L 'Extra'
+    $chkDeband.Text = L 'Deband'; $chkDenoise.Text = L 'Denoise'; $chkRife.Text = L 'Rife'
+    $btnStart.Text = L 'Start'; $btnCancel.Text = L 'Cancel'; $btnPrev.Text = L 'Preview'; $btnCmp.Text = L 'Compare'
+    foreach ($pair in @(@($cmbEnc,'EncoderItems'), @($cmbScale,'ScaleItems'), @($cmbAudio,'AudioItems'), @($cmbFinish,'FinishItems'))) {
+        $cmb = $pair[0]
+        $i = $cmb.SelectedIndex
+        $cmb.Items.Clear()
+        (L $pair[1]) | ForEach-Object { [void]$cmb.Items.Add($_) }
+        $cmb.SelectedIndex = $(if ($i -ge 0 -and $i -lt $cmb.Items.Count) { $i } else { 0 })
+    }
+    if (-not $btnCancel.Enabled) { $lblStatus.Text = L 'ReadyShort' }
+}
+Set-UiLanguage
+$cmbLang.Add_SelectedIndexChanged({
+    $script:LangCode = @('en','tr')[$cmbLang.SelectedIndex]
+    try { Set-Content -Path $LangFile -Value $script:LangCode -Encoding ASCII } catch {}
+    Set-UiLanguage
+})
 
 # --- Durum ---
 $state = @{
@@ -387,7 +535,7 @@ $lst.Add_DragEnter({ if ($_.Data.GetDataPresent([Windows.Forms.DataFormats]::Fil
 $lst.Add_DragDrop({ Add-Files ($_.Data.GetData([Windows.Forms.DataFormats]::FileDrop)) })
 $btnAdd.Add_Click({
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Filter = 'Video|*.mkv;*.mp4;*.avi;*.webm;*.mov;*.ts;*.m2ts;*.wmv|Tum dosyalar|*.*'
+    $dlg.Filter = 'Video|*.mkv;*.mp4;*.avi;*.webm;*.mov;*.ts;*.m2ts;*.wmv|{0}|*.*' -f (L 'AllFiles')
     $dlg.Multiselect = $true
     if ($dlg.ShowDialog() -eq 'OK') { Add-Files $dlg.FileNames }
 })
@@ -418,7 +566,7 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
     $useRife = $chkRife.Checked -and $script:Rife.Ok -and -not $fc
     if ($useRife -and $in -match '[%!^&]') {
         # cmd.exe bu karakterleri tirnak icinde bile ozel isler; riske girme
-        Log 'UYARI: dosya adinda % & ^ ! var - RIFE bu dosya icin atlandi (cmd kisiti).'
+        Log (L 'RifeBadName')
         $useRife = $false
     }
     $state.RifeJob = $useRife
@@ -448,8 +596,8 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
         } else {
             $ffArgs += @('-map','0:v:0','-map','0:a?','-map','0:s?','-map','0:d?','-map','0:t?')
         }
-        $ffArgs += & $Encoders[$cmbEnc.SelectedItem] ([int]$numQ.Value)
-        $ffArgs += $AudioOpts[$cmbAudio.SelectedItem]
+        $ffArgs += & $EncoderCmds[$cmbEnc.SelectedIndex] ([int]$numQ.Value)
+        $ffArgs += $AudioCmds[$cmbAudio.SelectedIndex]
         # -c:d copy: data akislari (or. Dolby Vision RPU) da tasinir
         $ffArgs += @('-c:s','copy','-c:d','copy','-c:t','copy')
         $ffArgs += Split-ExtraArgs $txtExtra.Text
@@ -501,7 +649,7 @@ function Start-AiJob([string]$in, [string]$out, $trim) {
     $fps = $script:CurFps
     if ($fps -le 0) { $fps = 23.976 }
     $sel = $cmbScale.SelectedItem
-    if ($sel -notmatch '^([234])x') { throw 'AI modunda cikti cozunurlugu olarak 2x/3x/4x secin (p hedefleri desteklenmez).' }
+    if ($sel -notmatch '^([234])x') { throw (L 'AiScaleErr') }
     $state.Ai = @{
         Phase = 'extract'; In = $in; Out = $out; Fps = $fps; Scale = [int]$Matches[1]
         InDir = Join-Path $TempDir 'ai_in'; OutDir = Join-Path $TempDir 'ai_out'
@@ -512,12 +660,12 @@ function Start-AiJob([string]$in, [string]$out, $trim) {
         New-Item -ItemType Directory -Path $d | Out-Null
     }
     $state.AiActive = $true
-    if ($chkRife.Checked) { Log 'Not: RIFE, AI modunda yok sayilir.' }
+    if ($chkRife.Checked) { Log (L 'RifeIgnored') }
     $dur = if ($trim) { [double]$trim[1] } else { $state.Duration }
     $frames = [int]($dur * $fps)
-    # kaba tahmin: jpg giris ~0.4 MB/kare (1080p), cikis ~0.4*olcek^2
-    $estGB = [Math]::Round($frames * 0.4 * (1 + $state.Ai.Scale * $state.Ai.Scale) / 1024, 1)
-    Log ("AI upscale x{0}: ~{1} kare, gecici disk tahmini ~{2} GB ({3})" -f $state.Ai.Scale, $frames, $estGB, $TempDir)
+    # kaba tahmin (PNG, 1080p temel): giris ~2.5 MB/kare, cikis ~2.5*olcek^2
+    $estGB = [Math]::Round($frames * 2.5 * (1 + $state.Ai.Scale * $state.Ai.Scale) / 1024, 1)
+    Log ((L 'AiDiskLog') -f $state.Ai.Scale, $frames, $estGB, $TempDir)
     Invoke-AiPhase
 }
 
@@ -527,38 +675,40 @@ function Invoke-AiPhase {
     Remove-Item $state.ProgFile, $state.ErrFile -ErrorAction SilentlyContinue
     switch ($ai.Phase) {
         'extract' {
-            # -fps_mode cfr: VFR kaynaklarda kare/ses senkronu icin sabit kare hizina cevir
+            # PNG cikti: ffmpeg kaynak matris/araligini dogru bilerek RGB'ye cevirir;
+            # -fps_mode cfr: VFR kaynaklarda kare/ses senkronu icin sabit kare hizi
             $a = @('-y','-hide_banner','-loglevel','warning')
             if ($ai.Trim) { $a += @('-ss',"$($ai.Trim[0])",'-t',"$($ai.Trim[1])") }
-            $a += @('-i',$ai.In,'-fps_mode','cfr','-r',"$($ai.Fps)",'-qscale:v','1','-qmin','1','-qmax','1',
-                    '-progress',$state.ProgFile,(Join-Path $ai.InDir 'f%08d.jpg'))
-            $lblStatus.Text = 'AI 1/3: kareler cikariliyor...'
+            $a += @('-i',$ai.In,'-fps_mode','cfr','-r',"$($ai.Fps)",
+                    '-progress',$state.ProgFile,(Join-Path $ai.InDir 'f%08d.png'))
+            $lblStatus.Text = L 'AiPhase1'
             Log ('ffmpeg ' + ((Quote-Args $a) -join ' '))
             $state.Proc = Start-Process -FilePath $FFmpeg -ArgumentList (Quote-Args $a) `
                 -WindowStyle Hidden -PassThru -RedirectStandardError $state.ErrFile
         }
         'upscale' {
-            $ai.Total = [IO.Directory]::GetFiles($ai.InDir, '*.jpg').Count
-            $a = @('-i',$ai.InDir,'-o',$ai.OutDir,'-n','realesr-animevideov3','-s',"$($ai.Scale)",'-f','jpg')
-            $lblStatus.Text = 'AI 2/3: {0} kare upscale ediliyor...' -f $ai.Total
+            $ai.Total = [IO.Directory]::GetFiles($ai.InDir, '*.png').Count
+            $a = @('-i',$ai.InDir,'-o',$ai.OutDir,'-n','realesr-animevideov3','-s',"$($ai.Scale)",'-f','png')
+            $lblStatus.Text = (L 'AiPhase2') -f $ai.Total
             Log ('realesrgan ' + ((Quote-Args $a) -join ' '))
             $state.Proc = Start-Process -FilePath $AiExe -ArgumentList (Quote-Args $a) `
                 -WorkingDirectory $AiDir -WindowStyle Hidden -PassThru -RedirectStandardError $state.ErrFile
         }
         'encode' {
-            $a = @('-y','-hide_banner','-loglevel','warning','-framerate',"$($ai.Fps)",'-i',(Join-Path $ai.OutDir 'f%08d.jpg'))
+            $a = @('-y','-hide_banner','-loglevel','warning','-framerate',"$($ai.Fps)",'-i',(Join-Path $ai.OutDir 'f%08d.png'))
             if ($ai.Trim) { $a += @('-ss',"$($ai.Trim[0])",'-t',"$($ai.Trim[1])") }   # ses girdisini ayni araliga kirpar
             $a += @('-i',$ai.In)
             $a += @('-map','0:v:0','-map','1:a?','-map','1:s?','-map','1:d?','-map','1:t?','-map_metadata','1','-map_chapters','1')
-            $a += & $Encoders[$cmbEnc.SelectedItem] ([int]$numQ.Value)
-            # jpg ara format full-range bt601'dir; standart tv-range bt709'a cevir ve etiketle
-            $a += @('-vf','scale=in_range=pc:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709,format=yuv420p',
+            $a += & $EncoderCmds[$cmbEnc.SelectedIndex] ([int]$numQ.Value)
+            # PNG (RGB) -> standart tv-range bt709 YUV; kaynak matris tahmini gerekmez.
+            # trc/primaries de bt709 etiketlenir (PNG'nin sRGB etiketi sizmasin)
+            $a += @('-vf','scale=out_range=tv:out_color_matrix=bt709,format=yuv420p',
                     '-color_range','tv','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709')
-            $a += $AudioOpts[$cmbAudio.SelectedItem]
+            $a += $AudioCmds[$cmbAudio.SelectedIndex]
             $a += @('-c:s','copy','-c:d','copy','-c:t','copy')
             $a += Split-ExtraArgs $txtExtra.Text
             $a += @('-shortest','-progress',$state.ProgFile,$ai.Out)
-            $lblStatus.Text = 'AI 3/3: kodlaniyor...'
+            $lblStatus.Text = L 'AiPhase3'
             Log ('ffmpeg ' + ((Quote-Args $a) -join ' '))
             $state.OutPath = $ai.Out
             $state.Proc = Start-Process -FilePath $FFmpeg -ArgumentList (Quote-Args $a) `
@@ -582,17 +732,17 @@ function Step-AiJob {
     if ($state.Cancelled) {
         $state.Cancelled = $false; $state.AiActive = $false
         Clear-AiTemp
-        Log 'Iptal edildi.'
-        Set-Busy $false; $lblStatus.Text = 'Iptal edildi.'
+        Log (L 'Cancelled')
+        Set-Busy $false; $lblStatus.Text = L 'Cancelled'
         return
     }
     if ($code -ne 0) {
         $failedPhase = $state.Ai.Phase
         $state.AiActive = $false
         Clear-AiTemp
-        Log "HATA: AI asamasi '$failedPhase' $code kodu ile bitti."
+        Log ((L 'AiFail') -f $failedPhase, $code)
         if ($state.Kind -eq 'queue') { Skip-Next }
-        else { Set-Busy $false; $lblStatus.Text = 'AI islemi basarisiz - log''a bakin.' }
+        else { Set-Busy $false; $lblStatus.Text = L 'AiFailStatus' }
         return
     }
     switch ($state.Ai.Phase) {
@@ -603,18 +753,18 @@ function Step-AiJob {
 
 function Start-QueueItem {
     $in = $state.Queue[$state.Index]
-    if (-not (Test-Path $in)) { Log "ATLANDI (bulunamadi): $in"; Skip-Next; return }
+    if (-not (Test-Path $in)) { Log ((L 'SkipMissing') -f $in); Skip-Next; return }
     $mi = Get-MediaInfo $in
     $state.Duration = $mi.Duration
     $script:CurFps = $mi.Fps
     $d = Split-Path $in -Parent
     $n = [IO.Path]::GetFileNameWithoutExtension($in)
     if ($cmbMode.SelectedItem -eq $AiModeName) {
-        if ($cmbScale.SelectedItem -notmatch '^([234])x') { Log 'ATLANDI: AI modunda 2x/3x/4x secin.'; Skip-Next; return }
+        if ($cmbScale.SelectedItem -notmatch '^([234])x') { Log (L 'SkipAiScale'); Skip-Next; return }
         $s = [int]$Matches[1]
         $out = Join-Path $d ('{0}_ai{1}x_upscale.mkv' -f $n, $s)
-        $lblStatus.Text = 'Dosya {0}/{1}: {2}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf)
-        Log ('--- [{0}/{1}] {2} ({3}x{4}, {5:N1} sn) -> AI x{6}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf), $mi.W, $mi.H, $mi.Duration, $s)
+        $lblStatus.Text = (L 'FileStatus') -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf)
+        Log ('--- [{0}/{1}] {2} ({3}x{4}, {5:N1} s) -> AI x{6}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf), $mi.W, $mi.H, $mi.Duration, $s)
         Start-AiJob $in $out $null
         return
     }
@@ -623,8 +773,8 @@ function Start-QueueItem {
     $rifeTag = ''
     if ($chkRife.Checked -and $script:Rife.Ok) { $rifeTag = '_rife' }
     $out = Join-Path $d ('{0}_{1}{2}_upscale.mkv' -f $n, $script:tgt.Tag, $rifeTag)
-    $lblStatus.Text = 'Dosya {0}/{1}: {2}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf)
-    Log ('--- [{0}/{1}] {2} ({3}x{4}, {5:N1} sn) -> {6} x {7}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf), $mi.W, $mi.H, $mi.Duration, $script:tgt.W, $script:tgt.H)
+    $lblStatus.Text = (L 'FileStatus') -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf)
+    Log ('--- [{0}/{1}] {2} ({3}x{4}, {5:N1} s) -> {6} x {7}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf), $mi.W, $mi.H, $mi.Duration, $script:tgt.W, $script:tgt.H)
     Start-Job2 $in $out $null $null $chain
 }
 
@@ -637,12 +787,12 @@ function Skip-Next {
 function Complete-Queue {
     Set-Busy $false
     $bar.Value = 100
-    $lblStatus.Text = 'Kuyruk tamamlandi ({0} dosya).' -f $state.Queue.Count
-    Log '=== KUYRUK TAMAMLANDI ==='
-    switch ($cmbFinish.SelectedItem) {
-        'Ses cal'                     { [System.Media.SystemSounds]::Asterisk.Play() }
-        'Bilgisayari uyut'            { Log 'Uyku moduna geciliyor...'; & rundll32.exe powrprof.dll,SetSuspendState 0,1,0 }
-        'Bilgisayari kapat (30 sn)'   { Log 'KAPATMA 30 sn icinde! Iptal: shutdown /a'; & shutdown.exe /s /t 30 }
+    $lblStatus.Text = (L 'QueueDone') -f $state.Queue.Count
+    Log (L 'QueueDoneLog')
+    switch ($cmbFinish.SelectedIndex) {
+        1 { [System.Media.SystemSounds]::Asterisk.Play() }
+        2 { Log (L 'Sleeping'); & rundll32.exe powrprof.dll,SetSuspendState 0,1,0 }
+        3 { Log (L 'Shutdown'); & shutdown.exe /s /t 30 }
     }
 }
 
@@ -666,23 +816,23 @@ function Complete-File {
     $ok = ($code -eq 0 -and (Test-Path $state.OutPath))
     if ($ok) {
         $mb = (Get-Item $state.OutPath).Length / 1MB
-        Log ('TAMAM ({0:N1} MB) -> {1}' -f $mb, $state.OutPath)
+        Log ((L 'Done') -f $mb, $state.OutPath)
     } elseif ($code -eq -1 -or $state.Cancelled) {
         $state.Cancelled = $false
-        Log 'Iptal edildi.'
-        Set-Busy $false; $lblStatus.Text = 'Iptal edildi.'
+        Log (L 'Cancelled')
+        Set-Busy $false; $lblStatus.Text = L 'Cancelled'
         return
     } else {
-        $hint = "Donanim kodlayici sectiyseniz bu GPU desteklemiyor olabilir; x264'u deneyin."
-        if ($state.RifeJob) { $hint = "RIFE hattinda hata olabilir - log'daki vspipe satirlarina bakin." }
-        Log "HATA: kodlama $code kodu ile bitti. $hint"
+        $hint = L 'HintHw'
+        if ($state.RifeJob) { $hint = L 'HintRife' }
+        Log ((L 'ErrEncode') -f $code, $hint)
     }
     switch ($state.Kind) {
         'queue'   { Skip-Next }
         default   {
             Set-Busy $false
-            if ($ok) { $lblStatus.Text = 'Hazir.'; Start-Process $state.OutPath }
-            else     { $lblStatus.Text = 'Onizleme/karsilastirma basarisiz - log''a bakin.' }
+            if ($ok) { $lblStatus.Text = L 'ReadyShort'; Start-Process $state.OutPath }
+            else     { $lblStatus.Text = L 'PrevFail' }
         }
     }
 }
@@ -697,9 +847,9 @@ $timer.Add_Tick({
     }
     if ($state.AiActive -and $state.Ai.Phase -eq 'upscale' -and $state.Ai.Total -gt 0) {
         # upscale fazinda ffmpeg -progress yok; cikti klasorundeki kare sayisini say
-        $done = [IO.Directory]::GetFiles($state.Ai.OutDir, '*.jpg').Count
+        $done = [IO.Directory]::GetFiles($state.Ai.OutDir, '*.png').Count
         $bar.Value = [Math]::Min(100, [int]($done / $state.Ai.Total * 100))
-        $lblStatus.Text = 'AI 2/3: kare {0}/{1}' -f $done, $state.Ai.Total
+        $lblStatus.Text = (L 'AiPhase2Tick') -f $done, $state.Ai.Total
     }
     elseif (Test-Path $state.ProgFile) {
         $p = Get-Content $state.ProgFile -Raw -ErrorAction SilentlyContinue
@@ -714,11 +864,11 @@ $timer.Add_Tick({
                 $eta = ''
                 if ($s.Count -gt 0 -and [double]$s[$s.Count-1].Groups[1].Value -gt 0) {
                     $rem = ($state.Duration - $sec) / [double]$s[$s.Count-1].Groups[1].Value
-                    $eta = ' - kalan ~' + [TimeSpan]::FromSeconds($rem).ToString('hh\:mm\:ss')
+                    $eta = ' - ' + (L 'Left') + ' ~' + [TimeSpan]::FromSeconds($rem).ToString('hh\:mm\:ss')
                 }
                 $pfx = ''
-                if ($state.Kind -eq 'queue' -and $state.Queue.Count -gt 1) { $pfx = 'Dosya {0}/{1} - ' -f ($state.Index+1), $state.Queue.Count }
-                $lblStatus.Text = "$pfx%$pct  (hiz: $spd$eta)"
+                if ($state.Kind -eq 'queue' -and $state.Queue.Count -gt 1) { $pfx = (L 'FilePrefix') -f ($state.Index+1), $state.Queue.Count }
+                $lblStatus.Text = "$pfx%$pct  ($(L 'Speed'): $spd$eta)"
             }
         }
     }
@@ -729,8 +879,8 @@ $timer.Add_Tick({
 
 $btnStart.Add_Click({
     try {
-        if ($lst.Items.Count -eq 0) { throw 'Kuyruk bos - dosya ekleyin.' }
-        if (-not (Test-Path $FFmpeg)) { throw "ffmpeg bulunamadi: $FFmpeg" }
+        if ($lst.Items.Count -eq 0) { throw (L 'QueueEmpty') }
+        if (-not (Test-Path $FFmpeg)) { throw ((L 'FfmpegMissing') -f $FFmpeg) }
         $state.Queue.Clear()
         $lst.Items | ForEach-Object { [void]$state.Queue.Add($_) }
         $state.Index = 0
@@ -738,13 +888,13 @@ $btnStart.Add_Click({
         Set-Busy $true
         Start-QueueItem
     } catch {
-        [Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Hata', 'OK', 'Warning') | Out-Null
+        [Windows.Forms.MessageBox]::Show($_.Exception.Message, (L 'Error'), 'OK', 'Warning') | Out-Null
     }
 })
 
 # Onizleme/karsilastirma: secili (yoksa ilk) dosyanin ORTASINDAN 10 sn
 function Get-SampleSource {
-    if ($lst.Items.Count -eq 0) { throw 'Once kuyruga dosya ekleyin.' }
+    if ($lst.Items.Count -eq 0) { throw (L 'PrevFirst') }
     $idx = $lst.SelectedIndex
     if ($idx -lt 0) { $idx = 0 }
     return $lst.Items[$idx]
@@ -760,32 +910,32 @@ $btnPrev.Add_Click({
         $state.Kind = 'preview'
         if ($cmbMode.SelectedItem -eq $AiModeName) {
             Set-Busy $true
-            $lblStatus.Text = 'AI onizleme hazirlaniyor...'
-            Log ('--- AI Onizleme: {0} (orta nokta {1:N0}. sn)' -f (Split-Path $in -Leaf), $mid)
-            Start-AiJob $in (Join-Path $TempDir 'onizleme_ai.mkv') @($mid, 10)
+            $lblStatus.Text = L 'AiPrevPrep'
+            Log ((L 'AiPrevLog') -f (Split-Path $in -Leaf), $mid)
+            Start-AiJob $in (Join-Path $TempDir 'preview_ai.mkv') @($mid, 10)
             return
         }
         $chain = Get-ChainFile $cmbMode.SelectedItem
         $script:tgt = Resolve-Target $cmbScale.SelectedItem $mi.W $mi.H
         Set-Busy $true
-        $lblStatus.Text = 'Onizleme hazirlaniyor...'
-        Log ('--- Onizleme: {0} (orta nokta {1:N0}. sn)' -f (Split-Path $in -Leaf), $mid)
-        Start-Job2 $in (Join-Path $TempDir 'onizleme.mkv') @($mid, 10) $null $chain
+        $lblStatus.Text = L 'PrevPrep'
+        Log ((L 'PrevLog') -f (Split-Path $in -Leaf), $mid)
+        Start-Job2 $in (Join-Path $TempDir 'preview.mkv') @($mid, 10) $null $chain
     } catch {
         Set-Busy $false
-        [Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Hata', 'OK', 'Warning') | Out-Null
+        [Windows.Forms.MessageBox]::Show($_.Exception.Message, (L 'Error'), 'OK', 'Warning') | Out-Null
     }
 })
 
 $btnCmp.Add_Click({
     try {
         if ($cmbMode.SelectedItem -eq $AiModeName) {
-            throw 'Karsilastirma AI modunda desteklenmiyor; bir shader modu secin.'
+            throw (L 'CmpAiErr')
         }
         $in = Get-SampleSource
         $chain = Get-ChainFile $cmbMode.SelectedItem
         $mi = Get-MediaInfo $in
-        if ($mi.W -le 0) { throw 'Girdi cozunurlugu okunamadi.' }
+        if ($mi.W -le 0) { throw (L 'CmpNoRes') }
         $state.Duration = [Math]::Min(10, $mi.Duration)
         $tgt = Resolve-Target $cmbScale.SelectedItem $mi.W $mi.H
         $mid = [Math]::Max(0, $mi.Duration/2 - 5)
@@ -793,12 +943,12 @@ $btnCmp.Add_Click({
         $fc = ('[0:v]split=2[a][b];[b]scale={0}:{1}:flags=lanczos[pl];[a]libplacebo=w={0}:h={1}:custom_shader_path={2}[up];[pl][up]hstack=inputs=2' -f $tgt.NumW, $tgt.NumH, (Split-Path $chain -Leaf))
         $state.Kind = 'compare'
         Set-Busy $true
-        $lblStatus.Text = 'Karsilastirma hazirlaniyor...'
-        if ($chkRife.Checked) { Log 'Not: karsilastirma RIFE olmadan yapilir.' }
-        Log ('--- Karsilastirma: sol=lanczos, sag={0}' -f $cmbMode.SelectedItem)
-        Start-Job2 $in (Join-Path $TempDir 'karsilastirma.mkv') @($mid, 10) $fc $chain
+        $lblStatus.Text = L 'CmpPrep'
+        if ($chkRife.Checked) { Log (L 'CmpNote') }
+        Log ((L 'CmpLog') -f $cmbMode.SelectedItem)
+        Start-Job2 $in (Join-Path $TempDir 'compare.mkv') @($mid, 10) $fc $chain
     } catch {
-        [Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Hata', 'OK', 'Warning') | Out-Null
+        [Windows.Forms.MessageBox]::Show($_.Exception.Message, (L 'Error'), 'OK', 'Warning') | Out-Null
     }
 })
 
@@ -858,11 +1008,11 @@ $txtLog.ForeColor = $ClrMuted
 $txtLog.BorderStyle = 'FixedSingle'
 $lblStatus.ForeColor = $ClrText
 
-Log "Kok klasor: $Root"
+Log ((L 'RootLog') -f $Root)
 if (-not $script:Rife.Ok) {
     $chkRife.Enabled = $false
-    Log "RIFE devre disi: $($script:Rife.Reason)"
+    Log ((L 'RifeOff') -f $script:Rife.Reason)
 }
-if (-not $script:Ai.Ok) { Log "AI modu devre disi: $($script:Ai.Reason)" }
-Log 'Hazir. Kuyruga video ekleyin; Onizleme/Karsilastir tek dosyayla, Baslat tum kuyrukla calisir.'
+if (-not $script:Ai.Ok) { Log ((L 'AiOff') -f $script:Ai.Reason) }
+Log (L 'Ready')
 [void]$form.ShowDialog()
