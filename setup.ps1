@@ -15,24 +15,26 @@ New-Item -ItemType Directory -Force -Path $Bin, $Vap, $Tmp | Out-Null
 
 $DepsUrl   = 'https://github.com/DailyDana/Aniflow/releases/download/deps-v1/vapoursynth-deps.zip'
 
-# BtbN sabit adli "ffmpeg-master-latest-win64-gpl.zip" dosyasini kaldirdi (Agu 2026);
-# dosya adi artik her derlemede degisiyor. Once GitHub API'den coz, API oran
-# sinirina takilirsa (anonim 60 istek/saat) surum sayfasinin HTML'inden coz.
+# BtbN'de sabit adli dosyalar "latest" ETIKETLI surumde durur:
+#   releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+# ("releases/latest/download/..." kisayolu KULLANILMAZ: o, API'nin son surumune
+# yani dosya adlari her derlemede degisen autobuild-* surumune gider ve 404 verir.)
+# Sabit adres bir gun kalkarsa API'den, o da olmazsa surum sayfasindan cozulur.
 function Resolve-FfmpegUrl {
+    $stable = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+    try {
+        $null = Invoke-WebRequest -Uri $stable -Method Head -UseBasicParsing
+        return $stable
+    } catch {
+        Write-Host '  (sabit adres yanit vermedi, guncel derleme adi cozuluyor...)'
+    }
     try {
         $r = Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' -UseBasicParsing
         $a = @($r.assets | Where-Object { $_.name -match '^ffmpeg-N-.*-win64-gpl\.zip$' })
         if ($a.Count -gt 0) { return $a[0].browser_download_url }
-    } catch {
-        Write-Host '  (GitHub API yanit vermedi, surum sayfasindan cozuluyor...)'
-    }
-    $resp = Invoke-WebRequest 'https://github.com/BtbN/FFmpeg-Builds/releases/latest' -UseBasicParsing
-    $final = $null   # PS 5.1: ResponseUri; PS 7: RequestMessage.RequestUri
-    if ($resp.BaseResponse.PSObject.Properties['ResponseUri']) { $final = $resp.BaseResponse.ResponseUri.AbsolutePath }
-    elseif ($resp.BaseResponse.RequestMessage) { $final = $resp.BaseResponse.RequestMessage.RequestUri.AbsolutePath }
-    $tag = if ($final) { ($final -split '/')[-1] } else { 'latest' }
-    $html = (Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/expanded_assets/$tag" -UseBasicParsing).Content
-    if ($html -match 'href="([^"]*ffmpeg-N-[^"]*-win64-gpl\.zip)"') {
+    } catch { }
+    $html = (Invoke-WebRequest 'https://github.com/BtbN/FFmpeg-Builds/releases/expanded_assets/latest' -UseBasicParsing).Content
+    if ($html -match 'href="([^"]*ffmpeg-master-latest-win64-gpl\.zip)"') {
         $u = $Matches[1]
         if ($u -notmatch '^https?:') { $u = 'https://github.com' + $u }
         return $u
