@@ -8,6 +8,9 @@ param([switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Net.Http
+
+$AppVersion = '1.3'
 
 $Root    = $PSScriptRoot
 $FFmpeg  = Join-Path $Root 'bin\ffmpeg.exe'
@@ -126,7 +129,7 @@ en = @{
     SetSuffix='Filename suffix:'; SetContainer='Container:'
     SetEncoding='Encoding'; SetPreset='x264/x265 preset:'
     SetAiHead='AI Upscale'; SetAiModel='AI model:'; SetAiTile='Tile size (lower = less VRAM):'
-    SetAiGpu='GPU index:'; SetTempDir='Temp folder for AI frames (empty = system temp):'
+    SetAiGpu='GPU index (0 = auto, prefers discrete):'; SetTempDir='Temp folder for AI frames (empty = system temp):'
     SetKeepTemp='Keep temp frames after job (debugging)'
     SetRifeHead='RIFE'; SetRifeModel='RIFE model:'; SetRifeThreads='GPU threads:'
     OKBtn='OK'; CancelBtn='Cancel'; TileAuto='Auto'
@@ -139,6 +142,8 @@ en = @{
     AudioFallback='MP4: "{0}" audio cannot be copied into MP4 - re-encoding to AAC 192k.'
     OutExists='Output already exists, writing to: {0}'
     AiStartFail='AI job could not start: {0}'
+    GpuLog='GPU: {0}'
+    UpdateNote='Update available: v{0} -> https://github.com/DailyDana/Aniflow/releases'
 }
 tr = @{
     Queue='Kuyruk (dosyalari buraya surukleyin, ciktilar kaynak klasore yazilir):'
@@ -203,7 +208,7 @@ tr = @{
     SetSuffix='Dosya adi eki:'; SetContainer='Kapsayici:'
     SetEncoding='Kodlama'; SetPreset='x264/x265 preset:'
     SetAiHead='AI Upscale'; SetAiModel='AI modeli:'; SetAiTile='Tile boyutu (dusuk = az VRAM):'
-    SetAiGpu='GPU sirasi:'; SetTempDir='AI kareleri icin gecici klasor (bos = sistem TEMP):'
+    SetAiGpu='GPU sirasi (0 = otomatik, ayrik kart secilir):'; SetTempDir='AI kareleri icin gecici klasor (bos = sistem TEMP):'
     SetKeepTemp='Is bitince gecici kareleri sakla (hata ayiklama)'
     SetRifeHead='RIFE'; SetRifeModel='RIFE modeli:'; SetRifeThreads='GPU is parcacigi:'
     OKBtn='Tamam'; CancelBtn='Iptal'; TileAuto='Otomatik'
@@ -216,6 +221,8 @@ tr = @{
     AudioFallback='MP4: "{0}" ses akisi MP4 icine kopyalanamaz - AAC 192k olarak yeniden kodlaniyor.'
     OutExists='Cikti dosyasi zaten var, suraya yazilacak: {0}'
     AiStartFail='AI isi baslatilamadi: {0}'
+    GpuLog='GPU: {0}'
+    UpdateNote='Yeni surum mevcut: v{0} -> https://github.com/DailyDana/Aniflow/releases'
 }
 }
 function L([string]$k) { $Strings[$script:LangCode][$k] }
@@ -404,6 +411,40 @@ function Find-AiSupport {
 }
 $script:Ai = Find-AiSupport
 
+# ---- GPU secimi ----
+# Cok GPU'lu sistemlerde (dizustu: iGPU + dGPU) ffmpeg de ncnn de varsayilan
+# olarak 0. cihazi alir; bu neredeyse her zaman zayif iGPU'dur ve shader
+# zinciri 4-5 kat yavaslar (iGPU'da 4,95 fps vs dGPU'da 21,79 fps olculdu).
+# Acilista Vulkan cihaz listesi cikarilir ve ayrik (discrete) kart secilir;
+# Cfg.AiGpu > 0 ise kullanici secimi her yerde (shader + AI + RIFE) oncelikli.
+function Find-VulkanGpus {
+    $r = @{ List = @(); Discrete = -1 }
+    if (-not (Test-Path -LiteralPath $FFmpeg)) { return $r }
+    $ErrorActionPreference = 'Continue'
+    $o = & $FFmpeg -hide_banner -v verbose -init_hw_device vulkan -f lavfi -i nullsrc=s=64x64:d=0.05 -frames:v 1 -f null - 2>&1 | Out-String
+    $ErrorActionPreference = 'Stop'
+    # satir bicimi: "[Vulkan @ 0x...]     0: Intel(R) Arc(TM) B580 Graphics (discrete) (0xe20b)"
+    foreach ($m in [regex]::Matches($o, '(?m)\]\s+(\d+):\s*(.+?)\s*\((integrated|discrete|virtual|cpu|unknown)\)')) {
+        $r.List += ,@{ Index = [int]$m.Groups[1].Value; Name = $m.Groups[2].Value; Type = $m.Groups[3].Value }
+    }
+    $d = @($r.List | Where-Object { $_.Type -eq 'discrete' })
+    if ($d.Count -gt 0) { $r.Discrete = $d[0].Index }
+    return $r
+}
+$script:Gpus = Find-VulkanGpus
+
+function Get-GpuIndex {
+    if ([int]$script:Cfg.AiGpu -gt 0) { return [int]$script:Cfg.AiGpu }
+    if ($script:Gpus.Discrete -ge 0) { return $script:Gpus.Discrete }
+    return 0
+}
+function Get-GpuLabel {
+    $i = Get-GpuIndex
+    $g = @($script:Gpus.List | Where-Object { $_.Index -eq $i })
+    if ($g.Count -gt 0) { return ('{0} (vk:{1})' -f $g[0].Name, $i) }
+    return "vk:$i"
+}
+
 if ($SelfTest) {
     'ffmpeg: ' + (Test-Path -LiteralPath $FFmpeg)
     foreach ($m in $Modes.Keys) {
@@ -415,6 +456,8 @@ if ($SelfTest) {
         '{0} [1920x1080] -> w={1} h={2} tag={3}' -f $s, $t.W, $t.H, $t.Tag
     }
     'lang: ' + $script:LangCode
+    'gpus: ' + $(if ($script:Gpus.List.Count) { ($script:Gpus.List | ForEach-Object { '{0}:{1} ({2})' -f $_.Index, $_.Name, $_.Type }) -join ' | ' } else { 'listelenemedi' })
+    'gpu-selected: ' + (Get-GpuLabel)
     'ai-support: {0}{1}' -f $script:Ai.Ok, $(if (-not $script:Ai.Ok) { ' (' + $script:Ai.Reason + ')' } else { '' })
     'rife-support: {0}{1}' -f $script:Rife.Ok, $(if (-not $script:Rife.Ok) { ' (' + $script:Rife.Reason + ')' } else { '' })
     if ($script:Rife.Ok) {
@@ -430,7 +473,7 @@ if ($SelfTest) {
 
 # ================= GUI =================
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Aniflow 1.1 - Anime4K / FSRCNNX Video Upscaler - Daily Dana'
+$form.Text = "Aniflow $AppVersion - Anime4K / FSRCNNX Video Upscaler - Daily Dana"
 $form.Size = New-Object System.Drawing.Size(690, 756)
 $form.MinimumSize = $form.Size
 $form.StartPosition = 'CenterScreen'
@@ -946,7 +989,8 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
     $useRife = $chkRife.Checked -and $script:Rife.Ok -and -not $fc
     $state.RifeJob = $useRife
 
-    $ffArgs = @('-y','-hide_banner','-loglevel','warning','-init_hw_device','vulkan')
+    if ($script:Gpus.List.Count -gt 1) { Log ((L 'GpuLog') -f (Get-GpuLabel)) }
+    $ffArgs = @('-y','-hide_banner','-loglevel','warning','-init_hw_device',"vulkan=vk:$(Get-GpuIndex)")
     if ($useRife) {
         $ffArgs += @('-i','pipe:0')
         if ($trim) { $ffArgs += @('-ss',"$($trim[0])",'-t',"$($trim[1])") }   # ses girdisini ayni araliga kirpar
@@ -991,7 +1035,8 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
             '-a','"input=%ANIFLOW_IN%"',
             '-a',"rife_dll=$($script:Rife.RifeDll)",
             '-a',"source_dll=$($script:Rife.SourceDll)",
-            '-a',"model_dir=$($script:Rife.ModelDir)")
+            '-a',"model_dir=$($script:Rife.ModelDir)",
+            '-a',"gpu_id=$(Get-GpuIndex)")
         if ($script:CurFps -gt 0) {
             $vsArgs += @('-a',"fps_num=$([int][Math]::Round($script:CurFps*1000))",'-a','fps_den=1000')
         }
@@ -1086,7 +1131,8 @@ function Invoke-AiPhase {
         }
         'upscale' {
             $ai.Total = [IO.Directory]::GetFiles($ai.InDir, '*.png').Count
-            $a = @('-i',$ai.InDir,'-o',$ai.OutDir,'-n',$script:Cfg.AiModel,'-s',"$($ai.Scale)",'-f','png','-g',"$($script:Cfg.AiGpu)")
+            if ($script:Gpus.List.Count -gt 1) { Log ((L 'GpuLog') -f (Get-GpuLabel)) }
+            $a = @('-i',$ai.InDir,'-o',$ai.OutDir,'-n',$script:Cfg.AiModel,'-s',"$($ai.Scale)",'-f','png','-g',"$(Get-GpuIndex)")
             if ([int]$script:Cfg.AiTile -gt 0) { $a += @('-t',"$($script:Cfg.AiTile)") }
             $lblStatus.Text = (L 'AiPhase2') -f $ai.Total
             Log ('realesrgan ' + ((Quote-Args $a) -join ' '))
@@ -1442,4 +1488,30 @@ if (-not $script:Rife.Ok) {
 }
 if (-not $script:Ai.Ok) { Log ((L 'AiOff') -f $script:Ai.Reason) }
 Log (L 'Ready')
+# ---- Guncelleme kontrolu (arka planda, engellemez; hata sessizce yutulur) ----
+# HttpClient async baslatilir, WinForms timer'i Task'i yoklar: UI hic donmaz.
+$updTimer = New-Object System.Windows.Forms.Timer
+$updTimer.Interval = 3000
+$script:UpdTask = $null
+$updTimer.Add_Tick({
+    if (-not $script:UpdTask) {
+        try {
+            $hc = New-Object System.Net.Http.HttpClient
+            $hc.Timeout = [TimeSpan]::FromSeconds(10)
+            $hc.DefaultRequestHeaders.UserAgent.ParseAdd('Aniflow')
+            $script:UpdTask = $hc.GetStringAsync('https://api.github.com/repos/DailyDana/Aniflow/releases/latest')
+        } catch { $updTimer.Stop() }
+        return
+    }
+    if (-not $script:UpdTask.IsCompleted) { return }
+    $updTimer.Stop()
+    try {
+        $tag = ([regex]::Match($script:UpdTask.Result, '"tag_name"\s*:\s*"v?([\d.]+)"')).Groups[1].Value
+        if ($tag -and ([version]($tag + '.0') -gt [version]($AppVersion + '.0'))) {
+            Log ((L 'UpdateNote') -f $tag)
+        }
+    } catch { }   # ag yok / API siniri / deps-v1 gibi surum disi etiket: sessiz gec
+})
+$updTimer.Start()
+
 [void]$form.ShowDialog()

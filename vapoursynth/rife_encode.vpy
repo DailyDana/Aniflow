@@ -17,6 +17,7 @@ dur_sec    = float(globals().get('dur_sec', '-1'))
 fps_num    = int(globals().get('fps_num', '0'))    # VFR yedegi: kapsayicinin ort. fps'i
 fps_den    = int(globals().get('fps_den', '1'))
 gpu_thread = int(globals().get('gpu_thread', '2'))
+gpu_id     = int(globals().get('gpu_id', '-1'))   # -1 = eklenti varsayilani (0. cihaz)
 
 for dll in (source_dll, rife_dll):
     if dll and os.path.exists(dll):
@@ -71,9 +72,14 @@ def _ascii_safe_model_dir(models_dir, name):
 
 # RIFE RGBS float bekler; kaynak cozunurlukte calisir (720p kucultme YOK - offline is)
 rgb = core.resize.Bicubic(clip, format=vs.RGBS)
-inter = core.rife.RIFE(rgb, factor_num=2, factor_den=1,
-                       model_path=_ascii_safe_model_dir(model_dir, model_name),
-                       gpu_thread=gpu_thread, sc=True)
+# cok GPU'lu sistemde ncnn de varsayilan olarak 0. cihazi (cogunlukla iGPU) alir;
+# Aniflow tespit ettigi ayrik karti gpu_id ile gecirir
+_kw = dict(factor_num=2, factor_den=1,
+           model_path=_ascii_safe_model_dir(model_dir, model_name),
+           gpu_thread=gpu_thread, sc=True)
+if gpu_id >= 0:
+    _kw['gpu_id'] = gpu_id
+inter = core.rife.RIFE(rgb, **_kw)
 # 10-bit kaynaklar 10-bit kalir (y4m P10 destekler); digerleri 8-bit
 outfmt = vs.YUV420P10 if bits > 8 else vs.YUV420P8
 out = core.resize.Bicubic(inter, format=outfmt, matrix=matrix)
