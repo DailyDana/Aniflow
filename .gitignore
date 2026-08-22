@@ -2,6 +2,7 @@
 bin/
 vapoursynth/*.dll
 vapoursynth/models/
+vapoursynth/portable/
 realesrgan/
 
 # Calisma zamaninda uretilen zincir dosyalari

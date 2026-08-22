@@ -360,9 +360,14 @@ $VpyScript = Join-Path $VapourDir 'rife_encode.vpy'
 
 function Find-RifeSupport {
     $r = @{ Ok = $false; Vspipe = ''; RifeDll = ''; ModelDir = ''; SourceDll = ''; Reason = '' }
-    $vs = Get-Command vspipe.exe -ErrorAction SilentlyContinue
-    if (-not $vs) { $r.Reason = 'vspipe.exe not on PATH (needs Python + "pip install vapoursynth")'; return $r }
-    $r.Vspipe = $vs.Source
+    # once setup.ps1'in kurdugu tasinabilir VapourSynth, sonra sistemdeki vspipe
+    $portable = Join-Path $VapourDir 'portable\Lib\site-packages\vapoursynth\vspipe.exe'
+    if (Test-Path -LiteralPath $portable) { $r.Vspipe = $portable }
+    else {
+        $vs = Get-Command vspipe.exe -ErrorAction SilentlyContinue
+        if (-not $vs) { $r.Reason = 'vspipe.exe missing (re-run setup.ps1 - it installs portable VapourSynth)'; return $r }
+        $r.Vspipe = $vs.Source
+    }
     # RIFE eklentisi/modeli: once proje klasoru, sonra mpv kurulumu
     foreach ($d in @($VapourDir, (Join-Path $env:APPDATA 'mpv\vapoursynth'))) {
         $dll = Join-Path $d 'librife_windows_x86-64.dll'

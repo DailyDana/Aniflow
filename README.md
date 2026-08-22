@@ -34,7 +34,9 @@ stage that doubles the frame rate (24 → 48 fps).
 
 - Windows 10/11 with PowerShell 5.1 (built in)
 - A GPU with Vulkan drivers (for libplacebo shaders; virtually anything post-2015)
-- **For RIFE only (optional):** Python 3.12+ with `pip install vapoursynth`
+- **For RIFE:** nothing extra — `setup.ps1` installs a self-contained portable
+  VapourSynth into the app folder (no system Python needed; an existing
+  system-wide VapourSynth is used if found)
 
 ## Install
 
@@ -94,7 +96,8 @@ aracı; isteğe bağlı RIFE 2x kare interpolasyonu ile. Yazar: Daily Dana.**
   — uygulamayı indirir, bağımlılıkları kurar, masaüstüne kısayol koyar.
   Alternatif: **Code → Download ZIP** ile indirip `setup.ps1` çalıştırın,
   ardından **`Aniflow.bat`** ile başlatın.
-- **RIFE için (isteğe bağlı):** Python 3.12+ kurup `pip install vapoursynth` yapın.
+- **RIFE için:** ek bir şey gerekmez — `setup.ps1` uygulama klasörüne kendi
+  kendine yeterli taşınabilir VapourSynth kurar (sistem Python'u gerekmez).
   Eksik parça varsa RIFE kutusu kapalı kalır, sebebi log penceresinde yazar.
 - **Kullanım:** dosyaları kuyruğa sürükleyin; shader modunu, kodlayıcıyı ve
   çözünürlüğü seçin; Önizleme videonun ortasından 10 sn işler, Karşılaştır klasik

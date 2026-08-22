@@ -104,8 +104,36 @@ if ($Force -or -not (Test-Path $AiExe)) {
     }
 }
 
-# ---- 4) vspipe (kullanicinin kurmasi gereken tek parca) ----
-$vspipe = Get-Command vspipe.exe -ErrorAction SilentlyContinue
+# ---- 4) VapourSynth (RIFE icin; tasinabilir kurulum, sisteme dokunmaz) ----
+# Resmi "Install-Portable-VapourSynth" akisinin katilimsiz kopyasi: gomulu
+# Python + pip + VapourSynth wheel, hepsi vapoursynth\portable\ icine.
+$VsDir  = Join-Path $Vap 'portable'
+$vspipe = Join-Path $VsDir 'Lib\site-packages\vapoursynth\vspipe.exe'
+if (-not (Test-Path -LiteralPath $vspipe)) {
+    $sys = Get-Command vspipe.exe -ErrorAction SilentlyContinue
+    if ($sys) { $vspipe = $sys.Source }   # sistemde zaten varsa onu kullan
+}
+if ($Force -or -not (Test-Path -LiteralPath $vspipe)) {
+    try {
+        Write-Host 'VapourSynth (tasinabilir) kuruluyor / installing portable VapourSynth...'
+        New-Item -ItemType Directory -Force -Path $VsDir | Out-Null
+        $py = Join-Path $Tmp 'python-embed.zip'
+        Get-Download 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip' $py
+        Expand-Archive $py $VsDir -Force
+        Add-Content -Path (Join-Path $VsDir 'python312._pth') -Encoding UTF8 -Value 'Lib\site-packages'
+        Get-Download 'https://bootstrap.pypa.io/get-pip.py' (Join-Path $Tmp 'get-pip.py')
+        & (Join-Path $VsDir 'python.exe') (Join-Path $Tmp 'get-pip.py') --no-warn-script-location | Out-Null
+        $vsz = Join-Path $Tmp 'vs-portable.zip'
+        Get-Download 'https://github.com/vapoursynth/vapoursynth/releases/download/R79/VapourSynth64-Portable-R79.zip' $vsz
+        Expand-Archive $vsz $VsDir -Force
+        $whl = Get-ChildItem (Join-Path $VsDir 'wheel') -Filter '*.whl' | Select-Object -First 1
+        & (Join-Path $VsDir 'python.exe') -m pip install --no-warn-script-location $whl.FullName | Out-Null
+        $vspipe = Join-Path $VsDir 'Lib\site-packages\vapoursynth\vspipe.exe'
+    } catch {
+        Write-Warning "VapourSynth kurulamadi: $($_.Exception.Message)"
+        Write-Warning 'RIFE olmadan da uygulama calisir; setup.ps1''i tekrar calistirip deneyebilirsiniz.'
+    }
+}
 
 # ---- Ozet ----
 Write-Host ''
@@ -114,12 +142,6 @@ Write-Host ('  ffmpeg (libplacebo) : {0}' -f $(if (Test-Path $ff) { 'OK' } else 
 Write-Host ('  bestsource.dll      : {0}' -f $(if (Test-Path $bsDll) { 'OK' } else { 'EKSIK (RIFE calismaz)' }))
 Write-Host ('  RIFE eklenti+model  : {0}' -f $(if ((Test-Path $rifeDll) -and (Test-Path $rifeMod)) { 'OK' } else { 'EKSIK (RIFE calismaz)' }))
 Write-Host ('  Real-ESRGAN (AI)    : {0}' -f $(if (Test-Path $AiExe) { 'OK' } else { 'EKSIK (AI modu calismaz)' }))
-Write-Host ('  vspipe (VapourSynth): {0}' -f $(if ($vspipe) { 'OK - ' + $vspipe.Source } else { 'EKSIK' }))
-if (-not $vspipe) {
-    Write-Host ''
-    Write-Host 'RIFE kullanmak icin (istege bagli / optional, for RIFE only):'
-    Write-Host '  1) Python 3.12+ kurun: winget install Python.Python.3.12'
-    Write-Host '  2) pip install vapoursynth'
-}
+Write-Host ('  vspipe (VapourSynth): {0}' -f $(if (Test-Path -LiteralPath $vspipe) { 'OK - ' + $vspipe } else { 'EKSIK (RIFE calismaz; setup.ps1''i tekrar calistirin)' }))
 Write-Host ''
 Write-Host 'Hazir! "Aniflow.bat" ile baslatabilirsiniz. / Done - launch "Aniflow.bat".'
