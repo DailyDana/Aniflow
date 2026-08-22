@@ -75,9 +75,8 @@ en = @{
     Deband='Deband (color banding)'; Denoise='Denoise (hqdn3d)'; Rife='RIFE 2x frame interpolation'
     Start='Start'; Cancel='Cancel'; Preview='Preview (10 s)'; Compare='Compare (side by side)'
     ScaleItems=@('2x (double input)','3x (triple input)','4x (quadruple - double modes full power)','1080p (Full HD)','1440p (QHD)','2160p (4K)')
-    AudioItems=@('Copy (lossless)','AAC 192k','Opus 160k')
+    # AudioItems / EncoderItems: $Encoders-$AudioOpts tablolarindan turetilir (asagida)
     FinishItems=@('Do nothing','Play sound','Sleep','Shut down (30 s)')
-    EncoderItems=@('x264 (CPU, works everywhere)','x265 (CPU, works everywhere)','H.264 QSV (Intel GPU)','HEVC QSV (Intel GPU)','AV1 QSV (Intel Arc)','H.264 NVENC (NVIDIA GPU)','HEVC NVENC (NVIDIA GPU)','H.264 AMF (AMD GPU)','HEVC AMF (AMD GPU)')
     AllFiles='All files'
     Ready='Ready. Add videos to the queue; Preview/Compare use one file, Start runs the whole queue.'
     ReadyShort='Ready.'
@@ -143,6 +142,7 @@ en = @{
     OutExists='Output already exists, writing to: {0}'
     AiStartFail='AI job could not start: {0}'
     GpuLog='GPU: {0}'
+    SetGpuList='Detected: {0}'
     UpdateNote='Update available: v{0} -> https://github.com/DailyDana/Aniflow/releases'
 }
 tr = @{
@@ -154,9 +154,8 @@ tr = @{
     Deband='Deband (renk bantlari)'; Denoise='Denoise (hqdn3d)'; Rife='RIFE 2x kare interpolasyonu'
     Start='Baslat'; Cancel='Iptal'; Preview='Onizleme (10 sn)'; Compare='Karsilastir (yan yana)'
     ScaleItems=@('2x (girdinin 2 kati)','3x (girdinin 3 kati)','4x (girdinin 4 kati - cift modlar tam guc)','1080p (Full HD)','1440p (QHD)','2160p (4K)')
-    AudioItems=@('Kopyala (kayipsiz)','AAC 192k','Opus 160k')
+    # AudioItems / EncoderItems: tablodan turetilir
     FinishItems=@('Hicbir sey yapma','Ses cal','Bilgisayari uyut','Bilgisayari kapat (30 sn)')
-    EncoderItems=@('x264 (CPU, her yerde calisir)','x265 (CPU, her yerde calisir)','H.264 QSV (Intel GPU)','HEVC QSV (Intel GPU)','AV1 QSV (Intel Arc)','H.264 NVENC (NVIDIA GPU)','HEVC NVENC (NVIDIA GPU)','H.264 AMF (AMD GPU)','HEVC AMF (AMD GPU)')
     AllFiles='Tum dosyalar'
     Ready='Hazir. Kuyruga video ekleyin; Onizleme/Karsilastir tek dosyayla, Baslat tum kuyrukla calisir.'
     ReadyShort='Hazir.'
@@ -222,6 +221,7 @@ tr = @{
     OutExists='Cikti dosyasi zaten var, suraya yazilacak: {0}'
     AiStartFail='AI isi baslatilamadi: {0}'
     GpuLog='GPU: {0}'
+    SetGpuList='Algilanan: {0}'
     UpdateNote='Yeni surum mevcut: v{0} -> https://github.com/DailyDana/Aniflow/releases'
 }
 }
@@ -246,27 +246,31 @@ $Modes = [ordered]@{
     'FSRCNNX x2 16 + Krig + Sharpen'      = @('FSRCNNX_x2_16-0-4-1.glsl','KrigBilateral.glsl','adaptive-sharpen.glsl')
 }
 
-# --- Kodlayicilar: dizin sirasi EncoderItems dizisiyle esler (dil bagimsiz) ---
-$EncoderCmds = @(
-    { param($q) @('-c:v','libx264','-crf',"$q",'-preset',$script:Cfg.CpuPreset) }
-    { param($q) @('-c:v','libx265','-crf',"$q",'-preset',$script:Cfg.CpuPreset) }
-    { param($q) @('-c:v','h264_qsv','-global_quality',"$q") }
-    { param($q) @('-c:v','hevc_qsv','-global_quality',"$q") }
-    { param($q) @('-c:v','av1_qsv','-global_quality',"$q") }
-    { param($q) @('-c:v','h264_nvenc','-rc','vbr','-cq',"$q",'-b:v','0') }
-    { param($q) @('-c:v','hevc_nvenc','-rc','vbr','-cq',"$q",'-b:v','0') }
-    { param($q) @('-c:v','h264_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") }
-    { param($q) @('-c:v','hevc_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") }
+# --- Kodlayicilar: TEK tablo. Etiketler (en/tr) ve ffmpeg komutu ayni kayitta ---
+# yasar; combobox icerigi ve dispatch buradan turetilir. Eskiden uc paralel liste
+# vardi (en/tr EncoderItems + $EncoderCmds) ve biri kayarsa secim SESSIZCE yanlis
+# codec'i calistirirdi - tek tablo bunu yapisal olarak imkansiz kilar.
+$Encoders = @(
+    @{ En='x264 (CPU, works everywhere)';  Tr='x264 (CPU, her yerde calisir)';  Args={ param($q) @('-c:v','libx264','-crf',"$q",'-preset',$script:Cfg.CpuPreset) } }
+    @{ En='x265 (CPU, works everywhere)';  Tr='x265 (CPU, her yerde calisir)';  Args={ param($q) @('-c:v','libx265','-crf',"$q",'-preset',$script:Cfg.CpuPreset) } }
+    @{ En='H.264 QSV (Intel GPU)';         Tr='H.264 QSV (Intel GPU)';          Args={ param($q) @('-c:v','h264_qsv','-global_quality',"$q") } }
+    @{ En='HEVC QSV (Intel GPU)';          Tr='HEVC QSV (Intel GPU)';           Args={ param($q) @('-c:v','hevc_qsv','-global_quality',"$q") } }
+    @{ En='AV1 QSV (Intel Arc)';           Tr='AV1 QSV (Intel Arc)';            Args={ param($q) @('-c:v','av1_qsv','-global_quality',"$q") } }
+    @{ En='H.264 NVENC (NVIDIA GPU)';      Tr='H.264 NVENC (NVIDIA GPU)';       Args={ param($q) @('-c:v','h264_nvenc','-rc','vbr','-cq',"$q",'-b:v','0') } }
+    @{ En='HEVC NVENC (NVIDIA GPU)';       Tr='HEVC NVENC (NVIDIA GPU)';        Args={ param($q) @('-c:v','hevc_nvenc','-rc','vbr','-cq',"$q",'-b:v','0') } }
+    @{ En='H.264 AMF (AMD GPU)';           Tr='H.264 AMF (AMD GPU)';            Args={ param($q) @('-c:v','h264_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") } }
+    @{ En='HEVC AMF (AMD GPU)';            Tr='HEVC AMF (AMD GPU)';             Args={ param($q) @('-c:v','hevc_amf','-quality','quality','-rc','cqp','-qp_i',"$q",'-qp_p',"$q") } }
 )
-
-# Ses secenekleri: dizin sirasi AudioItems ile esler.
-# DIKKAT: bastaki virgul sart - @() blogu ic dizileri duzlestirir, ",@(...)"
-# her satiri tek oge olarak korur (PS 5.1 tuzagi).
-$AudioCmds = @(
-    ,@('-c:a','copy')
-    ,@('-c:a','aac','-b:a','192k')
-    ,@('-c:a','libopus','-b:a','160k')
+$AudioOpts = @(
+    @{ En='Copy (lossless)'; Tr='Kopyala (kayipsiz)'; Args=@('-c:a','copy') }
+    @{ En='AAC 192k';        Tr='AAC 192k';           Args=@('-c:a','aac','-b:a','192k') }
+    @{ En='Opus 160k';       Tr='Opus 160k';          Args=@('-c:a','libopus','-b:a','160k') }
 )
+# Combobox metinleri tablodan turetilir (Set-UiLanguage L 'EncoderItems' okur)
+$Strings.en.EncoderItems = @($Encoders  | ForEach-Object { $_.En })
+$Strings.tr.EncoderItems = @($Encoders  | ForEach-Object { $_.Tr })
+$Strings.en.AudioItems   = @($AudioOpts | ForEach-Object { $_.En })
+$Strings.tr.AudioItems   = @($AudioOpts | ForEach-Object { $_.Tr })
 
 # Zincir dosyasini birlestir. Shaders klasoru yazilabilirse oraya, degilse
 # (salt okunur USB vb.) TEMP'e yazar. Donus: zincirin tam yolu.
@@ -574,7 +578,11 @@ $cmbMode.Location = New-Object System.Drawing.Point(15, 185)
 $cmbMode.Size = New-Object System.Drawing.Size(250, 24)
 $cmbMode.DropDownStyle = 'DropDownList'
 $Modes.Keys | ForEach-Object { [void]$cmbMode.Items.Add($_) }
-if ($script:Ai.Ok) { [void]$cmbMode.Items.Add($AiModeName) }
+# AI modu listeye eklendigi KONUMLA tanınır (metinle degil): $AiModeName gorunen
+# ad olarak kalir; ad Turkcelestirilse bile Test-AiMode karsilastirmalari bozulmaz
+$script:AiModeIndex = -1
+if ($script:Ai.Ok) { [void]$cmbMode.Items.Add($AiModeName); $script:AiModeIndex = $cmbMode.Items.Count - 1 }
+function Test-AiMode { return ($script:AiModeIndex -ge 0 -and $cmbMode.SelectedIndex -eq $script:AiModeIndex) }
 $cmbMode.SelectedIndex = 0
 $form.Controls.Add($cmbMode)
 
@@ -805,6 +813,19 @@ function Show-SettingsDialog {
     $dGpu.Location = New-Object System.Drawing.Point(230, 377); $dGpu.Size = New-Object System.Drawing.Size(60, 24)
     $dGpu.Minimum = 0; $dGpu.Maximum = 3; $dGpu.Value = [Math]::Min(3, [Math]::Max(0, [int]$script:Cfg.AiGpu))
     $dlg.Controls.Add($dGpu)
+    if ($script:Gpus.List.Count -gt 0) {
+        # hangi sayinin hangi kart oldugunu goster; ad kisaltilir, sigmayan kisim "..."
+        $glist = ($script:Gpus.List | ForEach-Object {
+            '{0}: {1} ({2})' -f $_.Index, ((($_.Name -replace '\((R|TM)\)','') -replace '\s{2,}',' ').Trim()), $_.Type
+        }) -join '  |  '
+        $dGpuList = New-Object System.Windows.Forms.Label
+        $dGpuList.Text = (L 'SetGpuList') -f $glist
+        $dGpuList.Location = New-Object System.Drawing.Point(15, 399)
+        $dGpuList.Size = New-Object System.Drawing.Size(433, 13)
+        $dGpuList.AutoEllipsis = $true
+        $dGpuList.Font = New-Object System.Drawing.Font('Segoe UI', 7.5)
+        $dlg.Controls.Add($dGpuList)
+    }
 
     Add-DlgLabel (L 'SetTempDir') 15 412 $false | Out-Null
     $dTemp = New-Object System.Windows.Forms.TextBox
@@ -887,6 +908,7 @@ $btnSettings.Add_Click({ Show-SettingsDialog })
 $state = @{
     Proc = $null; Duration = 0; ProgFile = Join-Path $TempDir 'progress.txt'
     ErrFile = Join-Path $TempDir 'stderr.txt'; ErrOffset = 0; OutPath = ''; UsedOuts = @{}
+    # ErrOffset: stderr dosyasinda okunmus BAYT sayisi (Read-ErrTail ilerletir)
     Queue = New-Object System.Collections.ArrayList; Index = 0
     Kind = 'queue'   # queue | preview | compare
     Cancelled = $false; RifeJob = $false
@@ -952,7 +974,7 @@ function Get-StreamArgs([int]$srcInput, [string]$outPath, $codecs) {
 # Ses secenegini kapla bagdastirir: mp4'e kopyalanamayan kodekler AAC'ye duser,
 # Opus mp4'te deneysel bayrak ister
 function Get-AudioArgs([string]$outPath, $codecs) {
-    $sel = $AudioCmds[$cmbAudio.SelectedIndex]
+    $sel = $AudioOpts[$cmbAudio.SelectedIndex].Args
     if ([IO.Path]::GetExtension($outPath) -ne '.mp4') { return $sel }
     if ($cmbAudio.SelectedIndex -eq 2) { return $sel + @('-strict','experimental') }
     if ($cmbAudio.SelectedIndex -eq 0) {
@@ -975,6 +997,29 @@ function Set-Busy([bool]$busy) {
 # RIFE isinde $state.Proc cmd.exe'dir; .Kill() yalniz cmd'yi oldurur, vspipe ile
 # ffmpeg yetim kalip kodlamaya devam eder. taskkill /T tum agaci indirir.
 # (Start-Process: EAP=Stop altinda taskkill'in stderr'i hata sayilmasin diye)
+# stderr kuyrugunu kaldigi BAYTTAN okur ve yeni kismi dondurur (yoksa $null).
+# Eskiden dosya her seferinde bastan okunuyordu: realesrgan'in kare basina
+# ilerleme satirlari dosyayi 10+ MB'a sisirir, saniyede iki tam okuma uzun AI
+# islerinin sonunda UI'yi yavaslatiyordu. Salt yuzde satirlari da elenir
+# (kare sayaci ilerlemeyi zaten gosteriyor). Paylasimli acilir: surec yazarken
+# okumak serbesttir; hata durumunda sessizce $null doner.
+function Read-ErrTail {
+    try {
+        if (-not [IO.File]::Exists($state.ErrFile)) { return $null }
+        $fs = [IO.File]::Open($state.ErrFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            if ($fs.Length -le $state.ErrOffset) { return $null }
+            [void]$fs.Seek($state.ErrOffset, [IO.SeekOrigin]::Begin)
+            $sr = New-Object IO.StreamReader($fs)
+            $txt = $sr.ReadToEnd()
+            $state.ErrOffset = $fs.Length
+        } finally { $fs.Dispose() }
+        $lines = @($txt -split "`r?`n" | Where-Object { $_.Trim() -and $_ -notmatch '^\s*[\d.,]+%\s*$' })
+        if ($lines.Count) { return (($lines -join "`n").Trim()) }
+        return $null
+    } catch { return $null }
+}
+
 function Stop-EncodeTree {
     if ($state.Proc -and -not $state.Proc.HasExited) {
         Start-Process -FilePath 'taskkill.exe' -ArgumentList "/PID $($state.Proc.Id) /T /F" -WindowStyle Hidden
@@ -1015,27 +1060,43 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
         if ([IO.Path]::GetExtension($out) -eq '.mp4') { Log (L 'Mp4Note') }
         $sa = Get-StreamArgs $(if ($useRife) { 1 } else { 0 }) $out $codecs
         $ffArgs += $sa.Maps
-        $ffArgs += & $EncoderCmds[$cmbEnc.SelectedIndex] ([int]$numQ.Value)
+        $ffArgs += & $Encoders[$cmbEnc.SelectedIndex].Args ([int]$numQ.Value)
         $ffArgs += Get-AudioArgs $out $codecs
         $ffArgs += $sa.Codecs
-        $ffArgs += Split-ExtraArgs $txtExtra.Text
+        $xArgs = @(Split-ExtraArgs $txtExtra.Text)
+        if ($useRife) {
+            # cmd satirina cikacak serbest metinde % ! ^ & varsa o token da env-var'a alinir
+            $xn = 0
+            $xArgs = @($xArgs | ForEach-Object {
+                if ($_ -match '[%!^&]') { Set-Item "env:ANIFLOW_X$xn" $_; $v = '"%ANIFLOW_X' + $xn + '%"'; $xn++; $v } else { $_ }
+            })
+        }
+        $ffArgs += $xArgs
     }
-    $ffArgs += @('-progress', $state.ProgFile, $(if ($useRife) { '"%ANIFLOW_OUT%"' } else { $out }))
+    $ffArgs += @('-progress', $(if ($useRife) { '"%ANIFLOW_PROG%"' } else { $state.ProgFile }), $(if ($useRife) { '"%ANIFLOW_OUT%"' } else { $out }))
 
     $state.ErrOffset = 0
     Remove-Item $state.ProgFile, $state.ErrFile -ErrorAction SilentlyContinue
     $state.OutPath = $out
     if ($useRife) {
-        # Girdi/cikti yollari cmd satirina ham yazilmaz: % & ^ ! iceren adlar cmd'yi
-        # bozar. Bunun yerine ortam degiskeni kullanilir; cmd %VAR%'i tirnak icinde
+        # Cmd satirina HICBIR degisken yol ham yazilmaz: % & ^ ! iceren adlar cmd'yi
+        # bozar (tek satir kurulum %LOCALAPPDATA% kullandigi icin yol artik kullanici
+        # adini da iceriyor). Ortam degiskeni kullanilir; cmd %VAR%'i tirnak icinde
         # acar ve acilan degeri yeniden ayristirmaz, bu yuzden tum karakterler guvenli.
-        $env:ANIFLOW_IN = $in
-        $env:ANIFLOW_OUT = $out
-        $vsArgs = @($script:Rife.Vspipe,'-c','y4m',
+        $env:ANIFLOW_IN       = $in
+        $env:ANIFLOW_OUT      = $out
+        $env:ANIFLOW_PROG     = $state.ProgFile
+        $env:ANIFLOW_VSPIPE   = $script:Rife.Vspipe
+        $env:ANIFLOW_VPY      = $VpyScript
+        $env:ANIFLOW_FFMPEG   = $FFmpeg
+        $env:ANIFLOW_RIFEDLL  = $script:Rife.RifeDll
+        $env:ANIFLOW_SRCDLL   = $script:Rife.SourceDll
+        $env:ANIFLOW_MODELDIR = $script:Rife.ModelDir
+        $vsArgs = @('"%ANIFLOW_VSPIPE%"','-c','y4m',
             '-a','"input=%ANIFLOW_IN%"',
-            '-a',"rife_dll=$($script:Rife.RifeDll)",
-            '-a',"source_dll=$($script:Rife.SourceDll)",
-            '-a',"model_dir=$($script:Rife.ModelDir)",
+            '-a','"rife_dll=%ANIFLOW_RIFEDLL%"',
+            '-a','"source_dll=%ANIFLOW_SRCDLL%"',
+            '-a','"model_dir=%ANIFLOW_MODELDIR%"',
             '-a',"gpu_id=$(Get-GpuIndex)")
         if ($script:CurFps -gt 0) {
             $vsArgs += @('-a',"fps_num=$([int][Math]::Round($script:CurFps*1000))",'-a','fps_den=1000')
@@ -1043,11 +1104,11 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
         if ($trim) { $vsArgs += @('-a',"start_sec=$($trim[0])",'-a',"dur_sec=$($trim[1])") }
         # ayarlardan model ve GPU is parcacigi (rife_encode.vpy bu adlari okur)
         $vsArgs += @('-a',"model=$($script:Cfg.RifeModel)",'-a',"gpu_thread=$($script:Cfg.RifeGpuThread)")
-        $vsArgs += @($VpyScript,'-')
+        $vsArgs += @('"%ANIFLOW_VPY%"','-')
         # Iki sureci tek cmd altinda borula: tek tutamac, cikis kodu = ffmpeg'inki,
         # iki surecin stderr'i de ayni dosyaya akar (mevcut log/timer duzeni bozulmaz)
         # /v:off: gecikmeli acilim kayitta acik olsa bile ! isareti ozel sayilmasin
-        $cmdLine = '/v:off /s /c "' + ((Quote-Args $vsArgs) -join ' ') + ' | ' + ((Quote-Args (@($FFmpeg) + $ffArgs)) -join ' ') + '"'
+        $cmdLine = '/v:off /s /c "' + ((Quote-Args $vsArgs) -join ' ') + ' | ' + ((Quote-Args (@('"%ANIFLOW_FFMPEG%"') + $ffArgs)) -join ' ') + '"'
         Log ('cmd ' + $cmdLine)
         $state.Proc = Start-Process -FilePath $env:ComSpec -ArgumentList $cmdLine `
             -WorkingDirectory $chainDir -WindowStyle Hidden -PassThru `
@@ -1147,7 +1208,7 @@ function Invoke-AiPhase {
             if ([IO.Path]::GetExtension($ai.Out) -eq '.mp4') { Log (L 'Mp4Note') }
             $sa = Get-StreamArgs 1 $ai.Out $codecs
             $a += $sa.Maps
-            $a += & $EncoderCmds[$cmbEnc.SelectedIndex] ([int]$numQ.Value)
+            $a += & $Encoders[$cmbEnc.SelectedIndex].Args ([int]$numQ.Value)
             # PNG (RGB) -> standart tv-range bt709 YUV; kaynak matris tahmini gerekmez.
             # trc/primaries de bt709 etiketlenir (PNG'nin sRGB etiketi sizmasin)
             $a += @('-vf','scale=out_range=tv:out_color_matrix=bt709,format=yuv420p',
@@ -1170,10 +1231,8 @@ function Invoke-AiPhase {
 # extract/upscale fazlari bitince siradaki faza gecer; encode fazi Complete-File'a duser
 function Step-AiJob {
     $timer.Stop()
-    if (Test-Path $state.ErrFile) {
-        $errText = Get-Content $state.ErrFile -Raw -ErrorAction SilentlyContinue
-        if ($errText -and $errText.Length -gt $state.ErrOffset) { Log ($errText.Substring($state.ErrOffset).Trim()) }
-    }
+    $errTail = Read-ErrTail
+    if ($errTail) { Log $errTail }
     $code = $state.Proc.ExitCode
     $state.Proc = $null
     if ($null -eq $code) { $code = 0 }   # handle tuhafligi; hata varsa sonraki faz zaten yakalar
@@ -1213,7 +1272,7 @@ function Start-QueueItem {
     $script:CurFps = $mi.Fps
     $d = Split-Path $in -Parent
     $n = [IO.Path]::GetFileNameWithoutExtension($in)
-    if ($cmbMode.SelectedItem -eq $AiModeName) {
+    if (Test-AiMode) {
         if ($cmbScale.SelectedItem -notmatch '^([234])x') { Log (L 'SkipAiScale'); Skip-Next; return }
         $s = [int]$Matches[1]
         if ($script:Cfg.AiModel -ne 'realesr-animevideov3' -and $s -ne 4) { Log (L 'Ai4xOnly'); Skip-Next; return }
@@ -1259,10 +1318,8 @@ $timer.Interval = 500
 
 function Complete-File {
     $timer.Stop()
-    if (Test-Path $state.ErrFile) {
-        $errText = Get-Content $state.ErrFile -Raw -ErrorAction SilentlyContinue
-        if ($errText -and $errText.Length -gt $state.ErrOffset) { Log ($errText.Substring($state.ErrOffset).Trim()) }
-    }
+    $errTail = Read-ErrTail
+    if ($errTail) { Log $errTail }
     $code = $state.Proc.ExitCode
     $state.Proc = $null
     if ($state.AiActive) { Clear-AiTemp; $state.AiActive = $false }   # encode fazi bitti, gecici kareleri sil
@@ -1296,13 +1353,8 @@ function Complete-File {
 }
 
 $timer.Add_Tick({
-    if (Test-Path $state.ErrFile) {
-        $errText = Get-Content $state.ErrFile -Raw -ErrorAction SilentlyContinue
-        if ($errText -and $errText.Length -gt $state.ErrOffset) {
-            Log ($errText.Substring($state.ErrOffset).Trim())
-            $state.ErrOffset = $errText.Length
-        }
-    }
+    $errTail = Read-ErrTail
+    if ($errTail) { Log $errTail }
     if ($state.AiActive -and $state.Ai.Phase -eq 'upscale' -and $state.Ai.Total -gt 0) {
         # upscale fazinda ffmpeg -progress yok; kareler sirali uretildigi icin son
         # sayilan indeksten ileri yokla (klasoru bastan numaralandirmak on binlerce
@@ -1372,7 +1424,7 @@ $btnPrev.Add_Click({
         $script:CurFps = $mi.Fps
         $mid = [Math]::Max(0, $mi.Duration/2 - 5)
         $state.Kind = 'preview'
-        if ($cmbMode.SelectedItem -eq $AiModeName) {
+        if (Test-AiMode) {
             Set-Busy $true
             $lblStatus.Text = L 'AiPrevPrep'
             Log ((L 'AiPrevLog') -f (Split-Path $in -Leaf), $mid)
@@ -1393,7 +1445,7 @@ $btnPrev.Add_Click({
 
 $btnCmp.Add_Click({
     try {
-        if ($cmbMode.SelectedItem -eq $AiModeName) {
+        if (Test-AiMode) {
             throw (L 'CmpAiErr')
         }
         $in = Get-SampleSource
