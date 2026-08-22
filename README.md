@@ -38,13 +38,26 @@ stage that doubles the frame rate (24 → 48 fps).
 
 ## Install
 
+**One-line install** (no Git required) — paste into PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/DailyDana/Aniflow/main/install.ps1 | iex
+```
+
+This downloads the app to `%LOCALAPPDATA%\Aniflow`, fetches the dependencies and
+puts an **Aniflow** shortcut on your desktop.
+
+**Manual install:** click **Code → Download ZIP** on this page, extract it anywhere,
+then right-click `setup.ps1` → *Run with PowerShell* (or run
+`powershell -ExecutionPolicy Bypass -File .\setup.ps1`). Launch with **`Aniflow.bat`**.
+
+**For developers** (requires [Git](https://git-scm.com/download/win)):
+
 ```powershell
 git clone https://github.com/DailyDana/Aniflow.git
 cd Aniflow
 .\setup.ps1        # downloads ffmpeg (BtbN official build) + RIFE dependencies
 ```
-
-Then double-click **`Aniflow.bat`**.
 
 `setup.ps1` fetches what the repo does not ship: `bin\ffmpeg.exe` straight from the
 official [BtbN FFmpeg builds](https://github.com/BtbN/FFmpeg-Builds) and the
@@ -76,8 +89,10 @@ see [THIRD-PARTY.md](THIRD-PARTY.md).
 **Anime4K / FSRCNNX shader zincirlerini videoya kalıcı uygulayan taşınabilir Windows
 aracı; isteğe bağlı RIFE 2x kare interpolasyonu ile. Yazar: Daily Dana.**
 
-- **Kurulum:** depoyu klonlayın, `.\setup.ps1` çalıştırın (ffmpeg'i resmi BtbN
-  yapımından, RIFE bağımlılıklarını bu deponun `deps-v1` release'inden indirir),
+- **Kurulum (tek satır, Git gerekmez):** PowerShell'e şunu yapıştırın:
+  `irm https://raw.githubusercontent.com/DailyDana/Aniflow/main/install.ps1 | iex`
+  — uygulamayı indirir, bağımlılıkları kurar, masaüstüne kısayol koyar.
+  Alternatif: **Code → Download ZIP** ile indirip `setup.ps1` çalıştırın,
   ardından **`Aniflow.bat`** ile başlatın.
 - **RIFE için (isteğe bağlı):** Python 3.12+ kurup `pip install vapoursynth` yapın.
   Eksik parça varsa RIFE kutusu kapalı kalır, sebebi log penceresinde yazar.

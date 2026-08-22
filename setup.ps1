@@ -13,8 +13,33 @@ $Vap  = Join-Path $Root 'vapoursynth'
 $Tmp  = Join-Path $env:TEMP 'Aniflow-setup'
 New-Item -ItemType Directory -Force -Path $Bin, $Vap, $Tmp | Out-Null
 
-$FfmpegUrl = 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip'
 $DepsUrl   = 'https://github.com/DailyDana/Aniflow/releases/download/deps-v1/vapoursynth-deps.zip'
+
+# BtbN sabit adli "ffmpeg-master-latest-win64-gpl.zip" dosyasini kaldirdi (Agu 2026);
+# dosya adi artik her derlemede degisiyor. Once GitHub API'den coz, API oran
+# sinirina takilirsa (anonim 60 istek/saat) surum sayfasinin HTML'inden coz.
+function Resolve-FfmpegUrl {
+    try {
+        $r = Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' -UseBasicParsing
+        $a = @($r.assets | Where-Object { $_.name -match '^ffmpeg-N-.*-win64-gpl\.zip$' })
+        if ($a.Count -gt 0) { return $a[0].browser_download_url }
+    } catch {
+        Write-Host '  (GitHub API yanit vermedi, surum sayfasindan cozuluyor...)'
+    }
+    $resp = Invoke-WebRequest 'https://github.com/BtbN/FFmpeg-Builds/releases/latest' -UseBasicParsing
+    $final = $null   # PS 5.1: ResponseUri; PS 7: RequestMessage.RequestUri
+    if ($resp.BaseResponse.PSObject.Properties['ResponseUri']) { $final = $resp.BaseResponse.ResponseUri.AbsolutePath }
+    elseif ($resp.BaseResponse.RequestMessage) { $final = $resp.BaseResponse.RequestMessage.RequestUri.AbsolutePath }
+    $tag = if ($final) { ($final -split '/')[-1] } else { 'latest' }
+    $html = (Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/expanded_assets/$tag" -UseBasicParsing).Content
+    if ($html -match 'href="([^"]*ffmpeg-N-[^"]*-win64-gpl\.zip)"') {
+        $u = $Matches[1]
+        if ($u -notmatch '^https?:') { $u = 'https://github.com' + $u }
+        return $u
+    }
+    throw ('BtbN ffmpeg indirme adresi cozulemedi. Elle kurulum: https://github.com/BtbN/FFmpeg-Builds/releases ' +
+           'adresinden "win64-gpl.zip" dosyasini indirip icindeki ffmpeg.exe''yi bin\ klasorune kopyalayin.')
+}
 
 function Get-Download([string]$url, [string]$out) {
     Write-Host "Indiriliyor / downloading: $url"
@@ -25,7 +50,7 @@ function Get-Download([string]$url, [string]$out) {
 $ff = Join-Path $Bin 'ffmpeg.exe'
 if ($Force -or -not (Test-Path $ff)) {
     $zip = Join-Path $Tmp 'ffmpeg.zip'
-    Get-Download $FfmpegUrl $zip
+    Get-Download (Resolve-FfmpegUrl) $zip
     Expand-Archive $zip $Tmp -Force
     $exe = Get-ChildItem $Tmp -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
     if (-not $exe) { throw 'ffmpeg.exe zip icinde bulunamadi.' }
