@@ -100,7 +100,6 @@ en = @{
     SkipAiScale='SKIPPED: pick 2x/3x/4x in AI mode.'
     AiScaleErr='In AI mode pick 2x/3x/4x as output resolution (p targets are not supported).'
     RifeIgnored='Note: RIFE is ignored in AI mode.'
-    RifeBadName='WARNING: file name contains % & ^ ! - RIFE skipped for this file (cmd limitation).'
     AiDiskLog='AI upscale x{0}: ~{1} frames, estimated temp disk ~{2} GB ({3})'
     AiPhase1='AI 1/3: extracting frames...'
     AiPhase2='AI 2/3: upscaling {0} frames...'
@@ -136,6 +135,10 @@ en = @{
     KeepTempLog='Temp frames kept: {0}'
     CtxTop='Move to top'; CtxUp='Move up'; CtxDown='Move down'; CtxBottom='Move to bottom'
     CtxRemove='Remove'; CtxOpenSrc='Open source folder'; CtxOpenDst='Open output folder'
+    SubDropNote='MP4: {0} bitmap subtitle stream(s) (PGS/VobSub) cannot be stored in MP4, dropped.'
+    AudioFallback='MP4: "{0}" audio cannot be copied into MP4 - re-encoding to AAC 192k.'
+    OutExists='Output already exists, writing to: {0}'
+    AiStartFail='AI job could not start: {0}'
 }
 tr = @{
     Queue='Kuyruk (dosyalari buraya surukleyin, ciktilar kaynak klasore yazilir):'
@@ -174,7 +177,6 @@ tr = @{
     SkipAiScale='ATLANDI: AI modunda 2x/3x/4x secin.'
     AiScaleErr='AI modunda cikti cozunurlugu olarak 2x/3x/4x secin (p hedefleri desteklenmez).'
     RifeIgnored='Not: RIFE, AI modunda yok sayilir.'
-    RifeBadName='UYARI: dosya adinda % & ^ ! var - RIFE bu dosya icin atlandi (cmd kisiti).'
     AiDiskLog='AI upscale x{0}: ~{1} kare, gecici disk tahmini ~{2} GB ({3})'
     AiPhase1='AI 1/3: kareler cikariliyor...'
     AiPhase2='AI 2/3: {0} kare upscale ediliyor...'
@@ -210,6 +212,10 @@ tr = @{
     KeepTempLog='Gecici kareler saklandi: {0}'
     CtxTop='En uste tasi'; CtxUp='Yukari tasi'; CtxDown='Asagi tasi'; CtxBottom='En alta tasi'
     CtxRemove='Kaldir'; CtxOpenSrc='Kaynak klasoru ac'; CtxOpenDst='Cikti klasorunu ac'
+    SubDropNote='MP4: {0} bitmap altyazi akisi (PGS/VobSub) MP4 icinde tasinamaz, atlandi.'
+    AudioFallback='MP4: "{0}" ses akisi MP4 icine kopyalanamaz - AAC 192k olarak yeniden kodlaniyor.'
+    OutExists='Cikti dosyasi zaten var, suraya yazilacak: {0}'
+    AiStartFail='AI isi baslatilamadi: {0}'
 }
 }
 function L([string]$k) { $Strings[$script:LangCode][$k] }
@@ -260,18 +266,18 @@ $AudioCmds = @(
 function Get-ChainFile([string]$modeName) {
     $files = $Modes[$modeName]
     foreach ($f in $files) {
-        if (-not (Test-Path (Join-Path $Shaders $f))) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Shaders $f))) {
             throw "Shader missing: $f (folder: $Shaders)"
         }
     }
     $safe  = ($modeName -replace '[^\w]+','_').Trim('_')
     $name  = "_chain_$safe.glsl"
-    $src   = foreach ($f in $files) { Get-Item (Join-Path $Shaders $f) }
+    $src   = foreach ($f in $files) { Get-Item -LiteralPath (Join-Path $Shaders $f) }
     $newest = ($src | Measure-Object -Property LastWriteTime -Maximum).Maximum
     foreach ($dir in @($Shaders, $TempDir)) {
         $chain = Join-Path $dir $name
         try {
-            if (-not (Test-Path $chain) -or (Get-Item $chain).LastWriteTime -lt $newest) {
+            if (-not (Test-Path -LiteralPath $chain) -or (Get-Item -LiteralPath $chain).LastWriteTime -lt $newest) {
                 $src | Get-Content | Set-Content -Path $chain -Encoding UTF8
             }
             return $chain
@@ -293,6 +299,26 @@ function Get-MediaInfo([string]$path) {
         $r.W = [int]$Matches[1]; $r.H = [int]$Matches[2]
     }
     if ($info -match '(\d+(?:\.\d+)?)\s*fps') { $r.Fps = [double]$Matches[1] }
+    return $r
+}
+
+# Girdinin ses/altyazi kodeklerini listeler (mp4 uyumluluk kararlari icin).
+# TextSubs: metin altyazilarin goreli s-indeksleri; BitmapSubs: atlanacak akis sayisi
+function Get-StreamCodecs([string]$path) {
+    $ErrorActionPreference = 'Continue'
+    $info = & $FFmpeg -hide_banner -i $path 2>&1 | Out-String
+    $ErrorActionPreference = 'Stop'
+    $r = @{ Audio = @(); TextSubs = @(); BitmapSubs = 0 }
+    $textCodecs = 'subrip|srt|ass|ssa|mov_text|webvtt|text'
+    $si = 0
+    foreach ($m in [regex]::Matches($info, 'Stream #\d+:\d+[^\r\n]*?:\s*(Audio|Subtitle):\s*(\w+)')) {
+        $kind = $m.Groups[1].Value; $codec = $m.Groups[2].Value
+        if ($kind -eq 'Audio') { $r.Audio += $codec }
+        else {
+            if ($codec -match "^($textCodecs)$") { $r.TextSubs += $si } else { $r.BitmapSubs++ }
+            $si++
+        }
+    }
     return $r
 }
 
@@ -341,13 +367,13 @@ function Find-RifeSupport {
     foreach ($d in @($VapourDir, (Join-Path $env:APPDATA 'mpv\vapoursynth'))) {
         $dll = Join-Path $d 'librife_windows_x86-64.dll'
         $mod = Join-Path $d 'models\rife-v4.6_ensembleFalse'
-        if ((Test-Path $dll) -and (Test-Path $mod)) { $r.RifeDll = $dll; $r.ModelDir = Join-Path $d 'models'; break }
+        if ((Test-Path -LiteralPath $dll) -and (Test-Path -LiteralPath $mod)) { $r.RifeDll = $dll; $r.ModelDir = Join-Path $d 'models'; break }
     }
     if (-not $r.RifeDll) { $r.Reason = 'RIFE plugin/model not found (run setup.ps1)'; return $r }
     $bs = Join-Path $VapourDir 'bestsource.dll'
-    if (-not (Test-Path $bs)) { $r.Reason = 'bestsource.dll missing (run setup.ps1)'; return $r }
+    if (-not (Test-Path -LiteralPath $bs)) { $r.Reason = 'bestsource.dll missing (run setup.ps1)'; return $r }
     $r.SourceDll = $bs
-    if (-not (Test-Path $VpyScript)) { $r.Reason = 'rife_encode.vpy missing'; return $r }
+    if (-not (Test-Path -LiteralPath $VpyScript)) { $r.Reason = 'rife_encode.vpy missing'; return $r }
     $r.Ok = $true
     return $r
 }
@@ -364,8 +390,8 @@ $AiModeName = 'AI: Real-ESRGAN animevideov3 (offline)'
 
 function Find-AiSupport {
     $r = @{ Ok = $false; Reason = '' }
-    if (-not (Test-Path $AiExe)) { $r.Reason = 'realesrgan-ncnn-vulkan.exe missing (run setup.ps1)'; return $r }
-    if (-not (Test-Path (Join-Path $AiDir 'models\realesr-animevideov3-x2.param'))) {
+    if (-not (Test-Path -LiteralPath $AiExe)) { $r.Reason = 'realesrgan-ncnn-vulkan.exe missing (run setup.ps1)'; return $r }
+    if (-not (Test-Path -LiteralPath (Join-Path $AiDir 'models\realesr-animevideov3-x2.param'))) {
         $r.Reason = 'animevideov3 model missing (run setup.ps1)'; return $r
     }
     $r.Ok = $true
@@ -374,7 +400,7 @@ function Find-AiSupport {
 $script:Ai = Find-AiSupport
 
 if ($SelfTest) {
-    'ffmpeg: ' + (Test-Path $FFmpeg)
+    'ffmpeg: ' + (Test-Path -LiteralPath $FFmpeg)
     foreach ($m in $Modes.Keys) {
         $c = Get-ChainFile $m
         '{0} -> {1} ({2:N0} KB)' -f $m, $c, ((Get-Item $c).Length/1KB)
@@ -399,7 +425,7 @@ if ($SelfTest) {
 
 # ================= GUI =================
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Aniflow v2 - Anime4K / FSRCNNX Video Upscaler - Daily Dana'
+$form.Text = 'Aniflow 1.1 - Anime4K / FSRCNNX Video Upscaler - Daily Dana'
 $form.Size = New-Object System.Drawing.Size(690, 756)
 $form.MinimumSize = $form.Size
 $form.StartPosition = 'CenterScreen'
@@ -461,7 +487,7 @@ $ctxBottom.Add_Click({ Move-QueueItem ($lst.Items.Count - 1) })
 $ctxRemove.Add_Click({ if ($lst.SelectedIndex -ge 0) { $lst.Items.RemoveAt($lst.SelectedIndex) } })
 $ctxOpenSrc.Add_Click({
     $i = $lst.SelectedIndex
-    if ($i -ge 0 -and (Test-Path $lst.Items[$i])) {
+    if ($i -ge 0 -and (Test-Path -LiteralPath $lst.Items[$i])) {
         Start-Process explorer.exe "/select,`"$($lst.Items[$i])`""
     }
 })
@@ -469,8 +495,8 @@ $ctxOpenDst.Add_Click({
     $i = $lst.SelectedIndex
     if ($i -lt 0) { return }
     $d = Split-Path $lst.Items[$i] -Parent
-    if ($script:Cfg.OutDir -and (Test-Path $script:Cfg.OutDir)) { $d = $script:Cfg.OutDir }
-    if (Test-Path $d) { Start-Process explorer.exe "`"$d`"" }
+    if ($script:Cfg.OutDir -and (Test-Path -LiteralPath $script:Cfg.OutDir)) { $d = $script:Cfg.OutDir }
+    if (Test-Path -LiteralPath $d) { Start-Process explorer.exe "`"$d`"" }
 })
 
 $btnAdd = New-Object System.Windows.Forms.Button
@@ -709,7 +735,7 @@ function Show-SettingsDialog {
     $dAiModel.DropDownStyle = 'DropDownList'
     $aiModels = @('realesr-animevideov3')
     foreach ($m in @('realesrgan-x4plus-anime','realesrgan-x4plus','realesrnet-x4plus')) {
-        if (Test-Path (Join-Path $AiDir "models\$m.param")) { $aiModels += $m }
+        if (Test-Path -LiteralPath (Join-Path $AiDir "models\$m.param")) { $aiModels += $m }
     }
     $aiModels | ForEach-Object { [void]$dAiModel.Items.Add($_) }
     $mi = $aiModels.IndexOf([string]$script:Cfg.AiModel)
@@ -759,7 +785,7 @@ function Show-SettingsDialog {
     $dRifeModel.DropDownStyle = 'DropDownList'
     $rifeModels = @()
     if ($script:Rife.Ok) {
-        $rifeModels = @(Get-ChildItem $script:Rife.ModelDir -Directory -ErrorAction SilentlyContinue | ForEach-Object Name)
+        $rifeModels = @(Get-ChildItem -LiteralPath $script:Rife.ModelDir -Directory -ErrorAction SilentlyContinue | ForEach-Object Name)
     }
     if (-not $rifeModels) { $rifeModels = @([string]$script:Cfg.RifeModel) }
     $rifeModels | ForEach-Object { [void]$dRifeModel.Items.Add($_) }
@@ -812,7 +838,7 @@ $btnSettings.Add_Click({ Show-SettingsDialog })
 # --- Durum ---
 $state = @{
     Proc = $null; Duration = 0; ProgFile = Join-Path $TempDir 'progress.txt'
-    ErrFile = Join-Path $TempDir 'stderr.txt'; ErrOffset = 0; OutPath = ''
+    ErrFile = Join-Path $TempDir 'stderr.txt'; ErrOffset = 0; OutPath = ''; UsedOuts = @{}
     Queue = New-Object System.Collections.ArrayList; Index = 0
     Kind = 'queue'   # queue | preview | compare
     Cancelled = $false; RifeJob = $false
@@ -821,8 +847,8 @@ $state = @{
 
 function Add-Files($paths) {
     foreach ($p in $paths) {
-        if (Test-Path $p -PathType Container) {
-            Get-ChildItem $p -File | Where-Object Extension -match '\.(mkv|mp4|avi|webm|mov|ts|m2ts|wmv)$' |
+        if (Test-Path -LiteralPath $p -PathType Container) {
+            Get-ChildItem -LiteralPath $p -File | Where-Object Extension -match '\.(mkv|mp4|avi|webm|mov|ts|m2ts|wmv)$' |
                 ForEach-Object { if (-not $lst.Items.Contains($_.FullName)) { [void]$lst.Items.Add($_.FullName) } }
         } elseif (-not $lst.Items.Contains($p)) { [void]$lst.Items.Add($p) }
     }
@@ -842,26 +868,57 @@ $btnClr.Add_Click({ $lst.Items.Clear() })
 # Cikti yolunu ayarlara gore kur: klasor (kaynak yani / ozel) + ek + kapsayici
 function Get-OutPath([string]$srcDir, [string]$baseName, [string]$tag) {
     $d = $srcDir
-    if ($script:Cfg.OutDir -and (Test-Path $script:Cfg.OutDir)) { $d = $script:Cfg.OutDir }
-    Join-Path $d ('{0}_{1}{2}.{3}' -f $baseName, $tag, $script:Cfg.Suffix, $script:Cfg.Container)
+    if ($script:Cfg.OutDir -and (Test-Path -LiteralPath $script:Cfg.OutDir)) { $d = $script:Cfg.OutDir }
+    # Ayni yola cozulen ciktilar (ozel cikti klasorunde ayni adli bolumler, onceki
+    # kosudan kalan dosya) ffmpeg -y ile sessizce ezilmesin: doluysa _2, _3... eki
+    $p = Join-Path $d ('{0}_{1}{2}.{3}' -f $baseName, $tag, $script:Cfg.Suffix, $script:Cfg.Container)
+    $k = 2
+    while ((Test-Path -LiteralPath $p) -or $state.UsedOuts.ContainsKey($p)) {
+        $p = Join-Path $d ('{0}_{1}{2}_{4}.{3}' -f $baseName, $tag, $script:Cfg.Suffix, $script:Cfg.Container, $k)
+        $k++
+    }
+    if ($k -gt 2) { Log ((L 'OutExists') -f $p) }
+    $state.UsedOuts[$p] = $true
+    return $p
 }
 
-# Kapsayiciya gore akis eslemeleri: mp4 ek dosya tasiyamaz, altyazi mov_text ister
-function Get-StreamArgs([int]$srcInput) {
+# Akis eslemeleri YAZILACAK dosyanin kabina gore (global ayara gore degil:
+# onizleme/karsilastirma ciktilari her zaman mkv'dir). mkv veri akisi (d)
+# tasiyamaz; mp4 ek dosya tasiyamaz ve altyazida yalniz metin -> mov_text
+# cevrimi mumkundur, bitmap altyazilar (PGS/VobSub) atlanir.
+function Get-StreamArgs([int]$srcInput, [string]$outPath, $codecs) {
     $i = "$srcInput"
-    $a = @('-map','0:v:0','-map',"${i}:a?",'-map',"${i}:s?")
-    if ($script:Cfg.Container -eq 'mp4') {
-        $c = @('-c:s','mov_text')
+    $a = @('-map','0:v:0','-map',"${i}:a?")
+    if ([IO.Path]::GetExtension($outPath) -eq '.mp4') {
+        foreach ($s in $codecs.TextSubs) { $a += @('-map',"${i}:s:$s") }
+        if ($codecs.BitmapSubs -gt 0) { Log ((L 'SubDropNote') -f $codecs.BitmapSubs) }
+        $c = if (@($codecs.TextSubs).Count -gt 0) { @('-c:s','mov_text') } else { @() }
     } else {
-        $a += @('-map',"${i}:d?",'-map',"${i}:t?")
-        $c = @('-c:s','copy','-c:d','copy','-c:t','copy')
+        $a += @('-map',"${i}:s?",'-map',"${i}:t?")
+        $c = @('-c:s','copy','-c:t','copy')
     }
     if ($srcInput -eq 1) { $a += @('-map_metadata','1','-map_chapters','1') }
     return @{ Maps = $a; Codecs = $c }
 }
 
+# Ses secenegini kapla bagdastirir: mp4'e kopyalanamayan kodekler AAC'ye duser,
+# Opus mp4'te deneysel bayrak ister
+function Get-AudioArgs([string]$outPath, $codecs) {
+    $sel = $AudioCmds[$cmbAudio.SelectedIndex]
+    if ([IO.Path]::GetExtension($outPath) -ne '.mp4') { return $sel }
+    if ($cmbAudio.SelectedIndex -eq 2) { return $sel + @('-strict','experimental') }
+    if ($cmbAudio.SelectedIndex -eq 0) {
+        $bad = @($codecs.Audio) | Where-Object { $_ -notmatch '^(aac|mp3|mp2|ac3|eac3|alac|dts)$' } | Select-Object -First 1
+        if ($bad) { Log ((L 'AudioFallback') -f $bad); return @('-c:a','aac','-b:a','192k') }
+    }
+    return $sel
+}
+
 function Set-Busy([bool]$busy) {
     $btnStart.Enabled = -not $busy; $btnPrev.Enabled = -not $busy; $btnCmp.Enabled = -not $busy
+    # is surerken ayar degisikligi yasak: AI fazlari Cfg'yi canli okur, dil
+    # yenilemesi de calisan isin kullandigi combobox indekslerini kaydirir
+    $btnSettings.Enabled = -not $busy
     $btnCancel.Enabled = $busy
     if ($busy) { [void][Win32.Power]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) }
     else       { [void][Win32.Power]::SetThreadExecutionState($ES_CONTINUOUS) }
@@ -882,18 +939,14 @@ function Stop-EncodeTree {
 function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
     $chainDir = Split-Path $vfChain -Parent
     $useRife = $chkRife.Checked -and $script:Rife.Ok -and -not $fc
-    if ($useRife -and $in -match '[%!^&]') {
-        # cmd.exe bu karakterleri tirnak icinde bile ozel isler; riske girme
-        Log (L 'RifeBadName')
-        $useRife = $false
-    }
     $state.RifeJob = $useRife
 
     $ffArgs = @('-y','-hide_banner','-loglevel','warning','-init_hw_device','vulkan')
     if ($useRife) {
         $ffArgs += @('-i','pipe:0')
         if ($trim) { $ffArgs += @('-ss',"$($trim[0])",'-t',"$($trim[1])") }   # ses girdisini ayni araliga kirpar
-        $ffArgs += @('-i', $in)
+        # dosya yolu cmd satirina %VAR% olarak girer (asagida ANIFLOW_IN'e bakin)
+        $ffArgs += @('-i', '"%ANIFLOW_IN%"')
     } else {
         if ($trim) { $ffArgs += @('-ss',"$($trim[0])",'-t',"$($trim[1])") }
         $ffArgs += @('-i', $in)
@@ -909,22 +962,28 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
         $vf = "${pre}libplacebo=w=$($script:tgt.W):h=$($script:tgt.H):custom_shader_path=$(Split-Path $vfChain -Leaf)$deband"
         $ffArgs += @('-vf', $vf)
         # tum ses/altyazi/ek dosyalar korunur; video yalnizca ilk akis (kapak resimleri disarida)
-        if ($script:Cfg.Container -eq 'mp4') { Log (L 'Mp4Note') }
-        $sa = Get-StreamArgs $(if ($useRife) { 1 } else { 0 })
+        $codecs = Get-StreamCodecs $in
+        if ([IO.Path]::GetExtension($out) -eq '.mp4') { Log (L 'Mp4Note') }
+        $sa = Get-StreamArgs $(if ($useRife) { 1 } else { 0 }) $out $codecs
         $ffArgs += $sa.Maps
         $ffArgs += & $EncoderCmds[$cmbEnc.SelectedIndex] ([int]$numQ.Value)
-        $ffArgs += $AudioCmds[$cmbAudio.SelectedIndex]
+        $ffArgs += Get-AudioArgs $out $codecs
         $ffArgs += $sa.Codecs
         $ffArgs += Split-ExtraArgs $txtExtra.Text
     }
-    $ffArgs += @('-progress', $state.ProgFile, $out)
+    $ffArgs += @('-progress', $state.ProgFile, $(if ($useRife) { '"%ANIFLOW_OUT%"' } else { $out }))
 
     $state.ErrOffset = 0
     Remove-Item $state.ProgFile, $state.ErrFile -ErrorAction SilentlyContinue
     $state.OutPath = $out
     if ($useRife) {
+        # Girdi/cikti yollari cmd satirina ham yazilmaz: % & ^ ! iceren adlar cmd'yi
+        # bozar. Bunun yerine ortam degiskeni kullanilir; cmd %VAR%'i tirnak icinde
+        # acar ve acilan degeri yeniden ayristirmaz, bu yuzden tum karakterler guvenli.
+        $env:ANIFLOW_IN = $in
+        $env:ANIFLOW_OUT = $out
         $vsArgs = @($script:Rife.Vspipe,'-c','y4m',
-            '-a',"input=$in",
+            '-a','"input=%ANIFLOW_IN%"',
             '-a',"rife_dll=$($script:Rife.RifeDll)",
             '-a',"source_dll=$($script:Rife.SourceDll)",
             '-a',"model_dir=$($script:Rife.ModelDir)")
@@ -937,7 +996,8 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
         $vsArgs += @($VpyScript,'-')
         # Iki sureci tek cmd altinda borula: tek tutamac, cikis kodu = ffmpeg'inki,
         # iki surecin stderr'i de ayni dosyaya akar (mevcut log/timer duzeni bozulmaz)
-        $cmdLine = '/s /c "' + ((Quote-Args $vsArgs) -join ' ') + ' | ' + ((Quote-Args (@($FFmpeg) + $ffArgs)) -join ' ') + '"'
+        # /v:off: gecikmeli acilim kayitta acik olsa bile ! isareti ozel sayilmasin
+        $cmdLine = '/v:off /s /c "' + ((Quote-Args $vsArgs) -join ' ') + ' | ' + ((Quote-Args (@($FFmpeg) + $ffArgs)) -join ' ') + '"'
         Log ('cmd ' + $cmdLine)
         $state.Proc = Start-Process -FilePath $env:ComSpec -ArgumentList $cmdLine `
             -WorkingDirectory $chainDir -WindowStyle Hidden -PassThru `
@@ -954,15 +1014,22 @@ function Start-Job2([string]$in, [string]$out, $trim, $fc, [string]$vfChain) {
 }
 
 # --- AI upscale boru hatti (3 faz, timer uzerinden ilerler) ---
+
+# Klasoru joker acilimsiz ve hizli siler: Remove-Item hem koseli parantezli
+# yollari desen sayar (yanlis klasoru silebilir) hem on binlerce dosyada
+# cok yavastir; [IO.Directory] her yolu harfiyen alir
+function Remove-DirTree([string]$d) {
+    if ($d -and [IO.Directory]::Exists($d)) { try { [IO.Directory]::Delete($d, $true) } catch {} }
+}
+
 function Clear-AiTemp {
     if ($state.Ai) {
         if ($script:Cfg.KeepTemp) {
             Log ((L 'KeepTempLog') -f (Split-Path $state.Ai.InDir -Parent))
             return
         }
-        foreach ($d in @($state.Ai.InDir, $state.Ai.OutDir)) {
-            if ($d) { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
-        }
+        Remove-DirTree $state.Ai.InDir
+        Remove-DirTree $state.Ai.OutDir
     }
 }
 
@@ -975,14 +1042,14 @@ function Start-AiJob([string]$in, [string]$out, $trim) {
     # animevideov3 disindaki modeller yalniz 4x calisir
     if ($script:Cfg.AiModel -ne 'realesr-animevideov3' -and $aiScale -ne 4) { throw (L 'Ai4xOnly') }
     $tempBase = $TempDir
-    if ($script:Cfg.TempRoot -and (Test-Path $script:Cfg.TempRoot)) { $tempBase = $script:Cfg.TempRoot }
+    if ($script:Cfg.TempRoot -and (Test-Path -LiteralPath $script:Cfg.TempRoot)) { $tempBase = $script:Cfg.TempRoot }
     $state.Ai = @{
         Phase = 'extract'; In = $in; Out = $out; Fps = $fps; Scale = $aiScale
         InDir = Join-Path $tempBase 'ai_in'; OutDir = Join-Path $tempBase 'ai_out'
-        Trim = $trim; Total = 0
+        Trim = $trim; Total = 0; Done = 0
     }
     foreach ($d in @($state.Ai.InDir, $state.Ai.OutDir)) {
-        Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-DirTree $d
         New-Item -ItemType Directory -Path $d | Out-Null
     }
     $state.AiActive = $true
@@ -991,7 +1058,7 @@ function Start-AiJob([string]$in, [string]$out, $trim) {
     $frames = [int]($dur * $fps)
     # kaba tahmin (PNG, 1080p temel): giris ~2.5 MB/kare, cikis ~2.5*olcek^2
     $estGB = [Math]::Round($frames * 2.5 * (1 + $state.Ai.Scale * $state.Ai.Scale) / 1024, 1)
-    Log ((L 'AiDiskLog') -f $state.Ai.Scale, $frames, $estGB, $TempDir)
+    Log ((L 'AiDiskLog') -f $state.Ai.Scale, $frames, $estGB, $tempBase)
     Invoke-AiPhase
 }
 
@@ -1025,15 +1092,16 @@ function Invoke-AiPhase {
             $a = @('-y','-hide_banner','-loglevel','warning','-framerate',"$($ai.Fps)",'-i',(Join-Path $ai.OutDir 'f%08d.png'))
             if ($ai.Trim) { $a += @('-ss',"$($ai.Trim[0])",'-t',"$($ai.Trim[1])") }   # ses girdisini ayni araliga kirpar
             $a += @('-i',$ai.In)
-            if ($script:Cfg.Container -eq 'mp4') { Log (L 'Mp4Note') }
-            $sa = Get-StreamArgs 1
+            $codecs = Get-StreamCodecs $ai.In
+            if ([IO.Path]::GetExtension($ai.Out) -eq '.mp4') { Log (L 'Mp4Note') }
+            $sa = Get-StreamArgs 1 $ai.Out $codecs
             $a += $sa.Maps
             $a += & $EncoderCmds[$cmbEnc.SelectedIndex] ([int]$numQ.Value)
             # PNG (RGB) -> standart tv-range bt709 YUV; kaynak matris tahmini gerekmez.
             # trc/primaries de bt709 etiketlenir (PNG'nin sRGB etiketi sizmasin)
             $a += @('-vf','scale=out_range=tv:out_color_matrix=bt709,format=yuv420p',
                     '-color_range','tv','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709')
-            $a += $AudioCmds[$cmbAudio.SelectedIndex]
+            $a += Get-AudioArgs $ai.Out $codecs
             $a += $sa.Codecs
             $a += Split-ExtraArgs $txtExtra.Text
             $a += @('-shortest','-progress',$state.ProgFile,$ai.Out)
@@ -1076,13 +1144,19 @@ function Step-AiJob {
     }
     switch ($state.Ai.Phase) {
         'extract' { $state.Ai.Phase = 'upscale'; Invoke-AiPhase }
-        'upscale' { $state.Ai.Phase = 'encode';  Invoke-AiPhase }
+        'upscale' {
+            $state.Ai.Phase = 'encode'
+            # kodlama yalniz cikti karelerini okur; giris PNG'lerini simdi silmek
+            # encode boyunca ~O(video) fazladan disk tutulmasini onler
+            if (-not $script:Cfg.KeepTemp) { Remove-DirTree $state.Ai.InDir }
+            Invoke-AiPhase
+        }
     }
 }
 
 function Start-QueueItem {
     $in = $state.Queue[$state.Index]
-    if (-not (Test-Path $in)) { Log ((L 'SkipMissing') -f $in); Skip-Next; return }
+    if (-not (Test-Path -LiteralPath $in)) { Log ((L 'SkipMissing') -f $in); Skip-Next; return }
     $mi = Get-MediaInfo $in
     $state.Duration = $mi.Duration
     $script:CurFps = $mi.Fps
@@ -1095,7 +1169,10 @@ function Start-QueueItem {
         $out = Get-OutPath $d $n ('ai{0}x' -f $s)
         $lblStatus.Text = (L 'FileStatus') -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf)
         Log ('--- [{0}/{1}] {2} ({3}x{4}, {5:N1} s) -> AI x{6}' -f ($state.Index+1), $state.Queue.Count, (Split-Path $in -Leaf), $mi.W, $mi.H, $mi.Duration, $s)
-        Start-AiJob $in $out $null
+        # timer tick'inden (Skip-Next) gelindiginde firlatan bir istisna WinForms
+        # dongusunden kacip kuyrugu sessizce durdurur; burada yakala ve atla
+        try { Start-AiJob $in $out $null }
+        catch { Log ((L 'AiStartFail') -f $_.Exception.Message); Skip-Next }
         return
     }
     $chain = Get-ChainFile $cmbMode.SelectedItem
@@ -1141,11 +1218,11 @@ function Complete-File {
     # ExitCode bos donerse (handle gec erisim) cikti dosyasi + progress=end'e bak
     if ($null -eq $code) {
         $prog = Get-Content $state.ProgFile -Raw -ErrorAction SilentlyContinue
-        if ($prog -match 'progress=end' -and (Test-Path $state.OutPath)) { $code = 0 }
+        if ($prog -match 'progress=end' -and (Test-Path -LiteralPath $state.OutPath)) { $code = 0 }
     }
-    $ok = ($code -eq 0 -and (Test-Path $state.OutPath))
+    $ok = ($code -eq 0 -and (Test-Path -LiteralPath $state.OutPath))
     if ($ok) {
-        $mb = (Get-Item $state.OutPath).Length / 1MB
+        $mb = (Get-Item -LiteralPath $state.OutPath).Length / 1MB
         Log ((L 'Done') -f $mb, $state.OutPath)
     } elseif ($code -eq -1 -or $state.Cancelled) {
         $state.Cancelled = $false
@@ -1176,8 +1253,12 @@ $timer.Add_Tick({
         }
     }
     if ($state.AiActive -and $state.Ai.Phase -eq 'upscale' -and $state.Ai.Total -gt 0) {
-        # upscale fazinda ffmpeg -progress yok; cikti klasorundeki kare sayisini say
-        $done = [IO.Directory]::GetFiles($state.Ai.OutDir, '*.png').Count
+        # upscale fazinda ffmpeg -progress yok; kareler sirali uretildigi icin son
+        # sayilan indeksten ileri yokla (klasoru bastan numaralandirmak on binlerce
+        # dosyada tick basina 10-100 ms tutup arayuzu tiketiyordu)
+        $done = $state.Ai.Done
+        while ([IO.File]::Exists((Join-Path $state.Ai.OutDir ('f{0:d8}.png' -f ($done + 1))))) { $done++ }
+        $state.Ai.Done = $done
         $bar.Value = [Math]::Min(100, [int]($done / $state.Ai.Total * 100))
         $lblStatus.Text = (L 'AiPhase2Tick') -f $done, $state.Ai.Total
     }
@@ -1210,14 +1291,16 @@ $timer.Add_Tick({
 $btnStart.Add_Click({
     try {
         if ($lst.Items.Count -eq 0) { throw (L 'QueueEmpty') }
-        if (-not (Test-Path $FFmpeg)) { throw ((L 'FfmpegMissing') -f $FFmpeg) }
+        if (-not (Test-Path -LiteralPath $FFmpeg)) { throw ((L 'FfmpegMissing') -f $FFmpeg) }
         $state.Queue.Clear()
+        $state.UsedOuts = @{}
         $lst.Items | ForEach-Object { [void]$state.Queue.Add($_) }
         $state.Index = 0
         $state.Kind = 'queue'
         Set-Busy $true
         Start-QueueItem
     } catch {
+        Set-Busy $false
         [Windows.Forms.MessageBox]::Show($_.Exception.Message, (L 'Error'), 'OK', 'Warning') | Out-Null
     }
 })
@@ -1278,6 +1361,7 @@ $btnCmp.Add_Click({
         Log ((L 'CmpLog') -f $cmbMode.SelectedItem)
         Start-Job2 $in (Join-Path $TempDir 'compare.mkv') @($mid, 10) $fc $chain
     } catch {
+        Set-Busy $false
         [Windows.Forms.MessageBox]::Show($_.Exception.Message, (L 'Error'), 'OK', 'Warning') | Out-Null
     }
 })
@@ -1292,6 +1376,9 @@ $btnCancel.Add_Click({
 
 $form.Add_FormClosing({
     if ($state.Proc -and -not $state.Proc.HasExited) { $state.Cancelled = $true; Stop-EncodeTree }
+    # AI isi ortasinda kapatilirsa temizlik timer'a kalir, timer da form ile
+    # olur: onlarca GB PNG yetim kalmasin diye burada da temizle
+    if ($state.AiActive) { $state.AiActive = $false; Clear-AiTemp }
     [void][Win32.Power]::SetThreadExecutionState($ES_CONTINUOUS)
 })
 
