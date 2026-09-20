@@ -50,13 +50,16 @@ function Get-Download([string]$url, [string]$out) {
 
 # ---- 1) ffmpeg ----
 $ff = Join-Path $Bin 'ffmpeg.exe'
-if ($Force -or -not (Test-Path $ff)) {
+$fp = Join-Path $Bin 'ffprobe.exe'   # ayni zipten; Aniflow kare hizini kesir olarak (24000/1001) buradan okur
+if ($Force -or -not (Test-Path $ff) -or -not (Test-Path $fp)) {
     $zip = Join-Path $Tmp 'ffmpeg.zip'
     Get-Download (Resolve-FfmpegUrl) $zip
     Expand-Archive $zip $Tmp -Force
     $exe = Get-ChildItem $Tmp -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
     if (-not $exe) { throw 'ffmpeg.exe zip icinde bulunamadi.' }
     Copy-Item $exe.FullName $ff -Force
+    $prb = Get-ChildItem $Tmp -Recurse -Filter 'ffprobe.exe' | Select-Object -First 1
+    if ($prb) { Copy-Item $prb.FullName $fp -Force }   # yoksa uygulama ondalik fps ile devam eder
     # dogrulama: libplacebo filtresi var mi?
     $ErrorActionPreference = 'Continue'
     $filters = & $ff -hide_banner -filters 2>&1 | Out-String
@@ -139,9 +142,12 @@ if ($Force -or -not (Test-Path -LiteralPath $vspipe)) {
 Write-Host ''
 Write-Host '=== Aniflow kurulum ozeti / setup summary ==='
 Write-Host ('  ffmpeg (libplacebo) : {0}' -f $(if (Test-Path $ff) { 'OK' } else { 'EKSIK' }))
+Write-Host ('  ffprobe             : {0}' -f $(if (Test-Path $fp) { 'OK' } else { 'EKSIK (fps ondalik okunur)' }))
 Write-Host ('  bestsource.dll      : {0}' -f $(if (Test-Path $bsDll) { 'OK' } else { 'EKSIK (RIFE calismaz)' }))
 Write-Host ('  RIFE eklenti+model  : {0}' -f $(if ((Test-Path $rifeDll) -and (Test-Path $rifeMod)) { 'OK' } else { 'EKSIK (RIFE calismaz)' }))
 Write-Host ('  Real-ESRGAN (AI)    : {0}' -f $(if (Test-Path $AiExe) { 'OK' } else { 'EKSIK (AI modu calismaz)' }))
 Write-Host ('  vspipe (VapourSynth): {0}' -f $(if (Test-Path -LiteralPath $vspipe) { 'OK - ' + $vspipe } else { 'EKSIK (RIFE calismaz; setup.ps1''i tekrar calistirin)' }))
 Write-Host ''
 Write-Host 'Hazir! "Aniflow.bat" ile baslatabilirsiniz. / Done - launch "Aniflow.bat".'
+# indirme artiklari (ffmpeg zip ~190 MB, python, VS) TEMP'te kalmasin
+Remove-Item $Tmp -Recurse -Force -ErrorAction SilentlyContinue

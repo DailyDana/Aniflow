@@ -28,7 +28,7 @@ stage that doubles the frame rate (24 → 48 fps).
 - Data streams (Dolby Vision RPU) carried over alongside audio/subtitles/attachments.
 - Optional deband + denoise filters, audio copy or AAC/Opus re-encode,
   post-queue actions (sound / sleep / shutdown), sleep inhibited while encoding.
-- Dark themed UI (Turkish).
+- Dark themed UI, English/Turkish (switchable in Settings).
 
 ## Requirements
 
